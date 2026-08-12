@@ -1,0 +1,47 @@
+:root {
+  /* Color tokens - "reading room" palette: ink, paper, teal, amber stamp */
+  --ink-900: #12161c;
+  --ink-800: #1a212a;
+  --ink-700: #232c37;
+  --paper-100: #ede7da;
+  --paper-200: #cfc7b4;
+  --teal-500: #4fa695;
+  --teal-400: #6cc2b0;
+  --amber-500: #e8a33d;
+  --line: rgba(237, 231, 218, 0.12);
+
+  /* Type tokens */
+  --font-display: 'Fraunces', serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--ink-900);
+  color: var(--paper-100);
+  font-family: var(--font-body);
+}
+
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--teal-500);
+  color: var(--ink-900);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-700);
+  border-radius: 6px;
+}

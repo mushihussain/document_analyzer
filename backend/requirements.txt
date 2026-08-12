@@ -1,0 +1,35 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# LangChain + answer providers.
+# Groq and OpenRouter are both OpenAI-compatible, so langchain-openai drives
+# both via a per-provider base_url - see app/llm.py.
+langchain==0.3.7
+langchain-anthropic==0.3.0
+langchain-community==0.3.7
+langchain-chroma==0.1.4
+langchain-huggingface==0.1.2
+langchain-openai==0.2.14
+anthropic==0.39.0
+
+# Vector store + local embeddings (Claude has no embeddings API,
+# so retrieval uses a small local sentence-transformers model)
+chromadb==0.5.3
+sentence-transformers==3.2.1
+
+# Document parsing
+pypdf==4.3.1
+python-docx==1.1.2
+watchdog==4.0.2
+
+# Image OCR (image -> text), local and offline. RapidOCR runs PaddleOCR models
+# on the onnxruntime that chromadb already installs - no system binary needed,
+# unlike Tesseract. Pins below keep the existing stack intact: rapidocr would
+# otherwise pull numpy 2.x and opencv 5.x, which chromadb/sentence-transformers
+# are not built against here.
+rapidocr-onnxruntime==1.4.4
+numpy<2
+opencv-python<5

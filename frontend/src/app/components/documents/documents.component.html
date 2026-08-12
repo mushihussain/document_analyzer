@@ -1,0 +1,74 @@
+<aside class="catalog">
+  <div class="catalog-header">
+    <span class="eyebrow">The Index</span>
+    <h2>Ingested Folder</h2>
+  </div>
+
+  <label
+    class="dropzone"
+    [class.dragging]="dragging"
+    [class.busy]="uploading"
+    (dragover)="onDragOver($event)"
+    (dragleave)="onDragLeave($event)"
+    (drop)="onDrop($event)"
+  >
+    <input
+      type="file"
+      multiple
+      [accept]="accept"
+      [disabled]="uploading"
+      (change)="onFilesPicked($event)"
+      hidden
+    />
+    <span class="dropzone-title">{{ uploading ? 'Filing…' : 'Add documents' }}</span>
+    <span class="dropzone-hint" *ngIf="!uploading">Drop files here or click to browse</span>
+    <span class="dropzone-hint" *ngIf="!uploading">pdf · docx · txt · md</span>
+    <span class="dropzone-hint" *ngIf="!uploading">images read with OCR: png · jpg · tif · webp</span>
+
+    <span class="progress" *ngIf="uploading">
+      <span class="progress-bar" [style.width.%]="uploadProgress"></span>
+    </span>
+  </label>
+
+  <p class="upload-error" *ngIf="uploadError">{{ uploadError }}</p>
+
+  <div class="upload-result" *ngIf="lastUpload as res">
+    <p class="upload-ok" *ngIf="res.uploaded.length">
+      Added {{ res.uploaded.length }} document(s),
+      {{ uploadedChunkCount }} passages filed.
+    </p>
+    <p class="upload-note" *ngFor="let doc of notedUploads">
+      {{ doc.name }} — {{ doc.note }}
+    </p>
+    <p class="upload-skipped" *ngFor="let skip of res.skipped">
+      {{ skip.name }} — {{ skip.reason }}
+    </p>
+  </div>
+
+  <button class="rescan-btn" (click)="rescan.emit()" [disabled]="scanning || uploading">
+    {{ scanning ? 'Reading shelf…' : 'Rescan folder' }}
+  </button>
+
+  <p class="ingest-summary" *ngIf="lastIngest">{{ ingestSummary }}</p>
+
+  <p class="upload-skipped" *ngFor="let f of lastIngest?.failed">
+    {{ f.name }} — {{ f.reason }}
+  </p>
+
+  <ul class="card-list" *ngIf="documents.length; else empty">
+    <li class="card" *ngFor="let doc of documents">
+      <span class="tab" [class.tab-on]="doc.indexed"></span>
+      <div class="card-body">
+        <span class="doc-name">{{ doc.name }}</span>
+        <span class="doc-status">{{ doc.indexed ? 'filed' : 'not yet filed' }}</span>
+      </div>
+    </li>
+  </ul>
+
+  <ng-template #empty>
+    <p class="empty-state">
+      No documents found yet. Upload files above, or drop them into the configured folder and
+      rescan.
+    </p>
+  </ng-template>
+</aside>

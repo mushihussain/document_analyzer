@@ -1,0 +1,56 @@
+<aside class="history">
+  <div class="history-header">
+    <span class="eyebrow">Your Record</span>
+    <h2>Previous Chats</h2>
+  </div>
+
+  <button class="new-chat-btn" (click)="newChat.emit()">
+    <span class="plus" aria-hidden="true">+</span> New chat
+  </button>
+
+  <p class="loading" *ngIf="loading">Fetching your record…</p>
+
+  <ul class="thread-list" *ngIf="conversations.length; else noThreads">
+    <li
+      class="thread"
+      *ngFor="let c of conversations"
+      [class.active]="c.id === activeId"
+      (click)="select.emit(c.id)"
+      tabindex="0"
+      (keydown.enter)="select.emit(c.id)"
+    >
+      <div class="thread-main">
+        <span class="thread-title">{{ c.title }}</span>
+        <span class="thread-meta">
+          {{ when(c.updated_at) }} · {{ c.message_count }} message(s)
+        </span>
+      </div>
+
+      <button
+        class="thread-delete"
+        *ngIf="confirmingId !== c.id"
+        (click)="askRemove(c.id, $event)"
+        title="Delete this chat"
+        aria-label="Delete this chat"
+      >
+        ×
+      </button>
+
+      <span class="confirm" *ngIf="confirmingId === c.id">
+        <button class="confirm-yes" (click)="confirmRemove(c.id, $event)">Delete</button>
+        <button class="confirm-no" (click)="cancelRemove($event)">Keep</button>
+      </span>
+    </li>
+  </ul>
+
+  <ng-template #noThreads>
+    <p class="empty-state" *ngIf="!loading">
+      No saved chats yet. Ask a question and it will be filed here automatically.
+    </p>
+  </ng-template>
+
+  <div class="account" *ngIf="username">
+    <span class="account-name" [title]="username">{{ username }}</span>
+    <button class="sign-out" (click)="signOut.emit()">Sign out</button>
+  </div>
+</aside>

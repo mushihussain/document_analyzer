@@ -1,0 +1,28 @@
+# Only source code and README.md are meant to be tracked here - everything
+# below is either generated, downloaded, or local runtime state.
+
+# --- Python (root .venv/ and backend/.venv/) ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Secrets ---
+# Real env files carry API keys; only the .env.example template is tracked.
+.env
+!.env.example
+
+# --- Runtime data (SQLite db, uploaded documents, vector index) ---
+backend/data/
+
+# --- Node / Angular ---
+node_modules/
+dist/
+.angular/
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

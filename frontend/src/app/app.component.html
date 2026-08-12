@@ -1,0 +1,46 @@
+<app-login *ngIf="!signedIn" (signedIn)="onSignedIn()"></app-login>
+
+<div
+  class="toast-error"
+  *ngIf="sourceOpenError"
+  (click)="sourceOpenError = null"
+  title="Dismiss"
+>
+  {{ sourceOpenError }}
+</div>
+
+<div class="shell" *ngIf="signedIn">
+  <app-documents
+    [documents]="documents"
+    [scanning]="scanning"
+    [lastIngest]="lastIngest"
+    [uploading]="uploading"
+    [uploadProgress]="uploadProgress"
+    [lastUpload]="lastUpload"
+    [uploadError]="uploadError"
+    (rescan)="rescan()"
+    (upload)="upload($event)"
+  ></app-documents>
+
+  <app-chat
+    [turns]="turns"
+    [asking]="asking"
+    [loadingThread]="loadingThread"
+    [title]="activeTitle"
+    [documents]="documents"
+    (ask)="ask($event)"
+    (newChat)="newChat()"
+    (openSource)="openSourceDocument($event)"
+  ></app-chat>
+
+  <app-history
+    [conversations]="conversations"
+    [activeId]="activeConversationId"
+    [loading]="loadingHistory"
+    [username]="username"
+    (newChat)="newChat()"
+    (select)="openConversation($event)"
+    (remove)="deleteConversation($event)"
+    (signOut)="signOut()"
+  ></app-history>
+</div>

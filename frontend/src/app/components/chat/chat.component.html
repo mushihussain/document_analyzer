@@ -1,0 +1,80 @@
+<section class="reading-room">
+  <div class="header">
+    <div class="header-text">
+      <span class="eyebrow">The Reading Room</span>
+      <h1>{{ title || 'Ask the Documents' }}</h1>
+    </div>
+    <button class="header-new" *ngIf="turns.length || title" (click)="newChat.emit()">
+      New chat
+    </button>
+  </div>
+
+  <div class="transcript" #transcript>
+    <div class="empty-hint" *ngIf="!turns.length && !loadingThread && !asking">
+      Ask a question about anything in the ingested folder - answers are
+      grounded only in what's been filed on the left, and every exchange is
+      saved to your record on the right.
+    </div>
+
+    <div class="empty-hint" *ngIf="loadingThread">Opening that conversation…</div>
+
+    <div
+      class="turn"
+      *ngFor="let turn of turns"
+      [class.turn-user]="turn.role === 'user'"
+      [class.turn-assistant]="turn.role === 'assistant'"
+    >
+      <div class="bubble" [class.error]="turn.error">
+        {{ turn.text }}
+      </div>
+
+      <span class="answered-by" *ngIf="turn.provider && !turn.error">
+        answered by {{ label(turn.provider) }}
+        <ng-container *ngIf="turn.fullDocument">
+          · read in full{{ turn.truncated ? ' (sampled, too long to fit whole)' : '' }}
+        </ng-container>
+      </span>
+
+      <div class="slips" *ngIf="turn.sources?.length">
+        <button
+          type="button"
+          class="slip"
+          *ngFor="let s of turn.sources"
+          (click)="openSource.emit({ docName: s.doc_name, page: s.page })"
+          title="Open {{ s.doc_name }}{{ s.page ? ', page ' + s.page : '' }}"
+        >
+          <span class="slip-tag">{{ s.doc_name }}<ng-container *ngIf="s.page"> · p.{{ s.page }}</ng-container></span>
+          <p class="slip-text">{{ s.excerpt }}…</p>
+        </button>
+      </div>
+    </div>
+
+    <div class="turn turn-assistant" *ngIf="asking">
+      <div class="bubble thinking">Searching the shelves…</div>
+    </div>
+  </div>
+
+  <form class="composer" (ngSubmit)="submit()">
+    <select
+      class="scope-select"
+      [(ngModel)]="scope"
+      name="scope"
+      title="Search across all documents, or read one in full"
+      [disabled]="loadingThread"
+    >
+      <option value="">Search all documents</option>
+      <option *ngFor="let d of documents" [value]="d.name" [disabled]="!d.indexed">
+        Read in full: {{ d.name }}
+      </option>
+    </select>
+    <input
+      type="text"
+      [(ngModel)]="question"
+      name="question"
+      placeholder="What does the Q3 contract say about renewal terms?"
+      autocomplete="off"
+      [disabled]="loadingThread"
+    />
+    <button type="submit" [disabled]="asking || loadingThread || !question.trim()">Ask</button>
+  </form>
+</section>

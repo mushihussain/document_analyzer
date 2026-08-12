@@ -1,0 +1,68 @@
+<main class="gate">
+  <div class="card">
+    <div class="masthead">
+      <span class="eyebrow">Document Analyzer</span>
+      <h1>{{ isRegister ? 'Open an account' : 'The Reading Room' }}</h1>
+      <p class="blurb">
+        {{
+          isRegister
+            ? 'Pick a name and password. Your chats are saved privately under your account.'
+            : 'Sign in to reach your documents and your saved conversations.'
+        }}
+      </p>
+    </div>
+
+    <form (ngSubmit)="submit()" autocomplete="on">
+      <label class="field">
+        <span class="label">Username</span>
+        <input
+          type="text"
+          name="username"
+          [(ngModel)]="username"
+          [disabled]="busy"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
+          required
+        />
+      </label>
+
+      <label class="field">
+        <span class="label">Password</span>
+        <input
+          type="password"
+          name="password"
+          [(ngModel)]="password"
+          [disabled]="busy"
+          [attr.autocomplete]="isRegister ? 'new-password' : 'current-password'"
+          required
+        />
+      </label>
+
+      <label class="field" *ngIf="isRegister">
+        <span class="label">Confirm password</span>
+        <input
+          type="password"
+          name="confirm"
+          [(ngModel)]="confirm"
+          [disabled]="busy"
+          autocomplete="new-password"
+          required
+        />
+      </label>
+
+      <p class="hint" *ngIf="isRegister">At least {{ minPasswordLength }} characters.</p>
+
+      <p class="error" *ngIf="error">{{ error }}</p>
+
+      <button class="submit" type="submit" [disabled]="busy">{{ submitLabel }}</button>
+    </form>
+
+    <p class="switch">
+      {{ isRegister ? 'Already have an account?' : 'No account yet?' }}
+      <button type="button" (click)="switchMode()" [disabled]="busy">
+        {{ isRegister ? 'Sign in' : 'Create one' }}
+      </button>
+    </p>
+  </div>
+</main>
