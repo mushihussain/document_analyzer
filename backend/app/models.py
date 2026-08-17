@@ -22,6 +22,10 @@ class DocumentInfo(BaseModel):
     indexed: bool
 
 
+class ClearResponse(BaseModel):
+    removed: int
+
+
 class UploadedDocument(BaseModel):
     name: str
     chunks_indexed: int

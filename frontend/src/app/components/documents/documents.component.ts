@@ -23,11 +23,31 @@ export class DocumentsComponent {
   @Input() uploadProgress = 0;
   @Input() lastUpload: UploadResponse | null = null;
   @Input() uploadError: string | null = null;
+  @Input() clearing = false;
   @Output() rescan = new EventEmitter<void>();
   @Output() upload = new EventEmitter<File[]>();
+  @Output() clearFolder = new EventEmitter<void>();
 
   readonly accept = ACCEPTED_EXTENSIONS.join(',');
   dragging = false;
+  confirmingClear = false;
+
+  get busy(): boolean {
+    return this.scanning || this.uploading || this.clearing;
+  }
+
+  askClear(): void {
+    this.confirmingClear = true;
+  }
+
+  confirmClear(): void {
+    this.confirmingClear = false;
+    this.clearFolder.emit();
+  }
+
+  cancelClear(): void {
+    this.confirmingClear = false;
+  }
 
   get uploadedChunkCount(): number {
     return (this.lastUpload?.uploaded ?? []).reduce((sum, doc) => sum + doc.chunks_indexed, 0);

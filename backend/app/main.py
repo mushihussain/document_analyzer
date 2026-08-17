@@ -16,6 +16,7 @@ from .models import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ClearResponse,
     ConversationDetail,
     ConversationSummary,
     DocumentInfo,
@@ -185,6 +186,28 @@ async def get_document_file(name: str, user: User = Depends(auth.current_user)):
 
     media_type = mimetypes.guess_type(match.name)[0] or "application/octet-stream"
     return FileResponse(match, media_type=media_type, filename=match.name)
+
+
+@app.post("/api/documents/clear", response_model=ClearResponse)
+async def clear_documents(user: User = Depends(auth.current_user)):
+    """Delete every file in the documents folder and wipe the index clean.
+
+    Destructive and irreversible - the frontend requires an explicit confirm
+    before calling this. For starting over, rather than pruning one file at
+    a time.
+    """
+    removed = 0
+    for path in ingest.list_documents(settings.documents_folder):
+        try:
+            path.unlink()
+            removed += 1
+        except OSError as exc:
+            log.warning("[clear] could not delete %s: %s", path, exc)
+
+    vectorstore.reset_collection()
+    docstate.clear()
+
+    return ClearResponse(removed=removed)
 
 
 @app.post("/api/ingest", response_model=IngestResponse)

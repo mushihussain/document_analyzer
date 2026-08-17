@@ -7,7 +7,7 @@
   <label
     class="dropzone"
     [class.dragging]="dragging"
-    [class.busy]="uploading"
+    [class.busy]="uploading || clearing"
     (dragover)="onDragOver($event)"
     (dragleave)="onDragLeave($event)"
     (drop)="onDrop($event)"
@@ -16,7 +16,7 @@
       type="file"
       multiple
       [accept]="accept"
-      [disabled]="uploading"
+      [disabled]="uploading || clearing"
       (change)="onFilesPicked($event)"
       hidden
     />
@@ -45,11 +45,28 @@
     </p>
   </div>
 
-  <button class="rescan-btn" (click)="rescan.emit()" [disabled]="scanning || uploading">
+  <button class="rescan-btn" (click)="rescan.emit()" [disabled]="busy">
     {{ scanning ? 'Reading shelf…' : 'Rescan folder' }}
   </button>
 
   <p class="ingest-summary" *ngIf="lastIngest">{{ ingestSummary }}</p>
+
+  <div class="clear-row" *ngIf="documents.length">
+    <button
+      class="clear-btn"
+      *ngIf="!confirmingClear"
+      (click)="askClear()"
+      [disabled]="busy"
+    >
+      {{ clearing ? 'Clearing…' : 'Clear folder' }}
+    </button>
+
+    <span class="confirm" *ngIf="confirmingClear">
+      <span class="confirm-text">Delete all {{ documents.length }} document(s)?</span>
+      <button class="confirm-yes" (click)="confirmClear()">Clear</button>
+      <button class="confirm-no" (click)="cancelClear()">Keep</button>
+    </span>
+  </div>
 
   <p class="upload-skipped" *ngFor="let f of lastIngest?.failed">
     {{ f.name }} — {{ f.reason }}

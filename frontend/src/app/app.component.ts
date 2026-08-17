@@ -35,6 +35,7 @@ export class AppComponent implements OnInit {
   uploadProgress = 0;
   lastUpload: UploadResponse | null = null;
   uploadError: string | null = null;
+  clearing = false;
 
   // Chat
   turns: ChatTurn[] = [];
@@ -88,6 +89,7 @@ export class AppComponent implements OnInit {
     this.lastIngest = null;
     this.lastUpload = null;
     this.uploadError = null;
+    this.clearing = false;
   }
 
   private loadWorkspace(): void {
@@ -139,6 +141,26 @@ export class AppComponent implements OnInit {
         this.uploadError =
           err.error?.detail ?? err.message ?? 'Upload failed. Is the backend running?';
         this.loadDocuments();
+      },
+    });
+  }
+
+  /** Deletes every file in the scanned folder and wipes the index.
+   *  Documents component only emits this after the user confirms. */
+  clearFolder(): void {
+    this.clearing = true;
+    this.lastIngest = null;
+    this.lastUpload = null;
+    this.uploadError = null;
+
+    this.api.clearDocuments().subscribe({
+      next: () => {
+        this.clearing = false;
+        this.loadDocuments();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.clearing = false;
+        this.uploadError = err.error?.detail ?? 'Could not clear the folder.';
       },
     });
   }

@@ -18,8 +18,10 @@
     [uploadProgress]="uploadProgress"
     [lastUpload]="lastUpload"
     [uploadError]="uploadError"
+    [clearing]="clearing"
     (rescan)="rescan()"
     (upload)="upload($event)"
+    (clearFolder)="clearFolder()"
   ></app-documents>
 
   <app-chat

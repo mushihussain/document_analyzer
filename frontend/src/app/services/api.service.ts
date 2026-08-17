@@ -51,6 +51,10 @@ export interface UploadResponse {
   skipped: SkippedUpload[];
 }
 
+export interface ClearResponse {
+  removed: number;
+}
+
 export interface SourceSnippet {
   doc_name: string;
   excerpt: string;
@@ -113,6 +117,11 @@ export class ApiService {
 
   ingestFolder(): Observable<IngestResponse> {
     return this.http.post<IngestResponse>(`${this.baseUrl}/ingest`, {});
+  }
+
+  /** Deletes every file in the scanned folder and wipes the index. Irreversible. */
+  clearDocuments(): Observable<ClearResponse> {
+    return this.http.post<ClearResponse>(`${this.baseUrl}/documents/clear`, {});
   }
 
   /** Emits upload-progress events, then the final response. */
