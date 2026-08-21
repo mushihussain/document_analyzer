@@ -29,12 +29,12 @@ from .config import settings
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
+SYSTEM_INSTRUCTIONS = (
     "You are a document analysis assistant. Answer the user's question "
     "using ONLY the context excerpts provided below. If the answer is not "
     "contained in the context, say you don't have enough information in "
     "the ingested documents. Keep answers concise and cite the source file "
-    "name when relevant.\n\nCONTEXT:\n{context}"
+    "name when relevant."
 )
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -182,10 +182,36 @@ async def embed_many(texts: list[str]) -> list[list[float]]:
     return get_embeddings().embed_documents(texts)
 
 
+def _system_content(context: str, cache: bool) -> str | list[dict]:
+    """Plain string for the OpenAI-compatible providers (Groq, OpenRouter),
+    which don't understand Anthropic's cache_control field.
+
+    For Anthropic, when `cache` is set, the context is split into its own
+    content block with a cache_control breakpoint - Anthropic caches
+    everything up to and including that block for a few minutes, so a
+    multi-turn conversation that keeps resending the same large context
+    (whole-document mode, see main.py) only pays full price on the first
+    turn. Not worth doing for normal search-mode context, since retrieved
+    chunks usually differ question to question and would just pay a cache
+    write for a prefix that's never read again.
+    """
+    if not cache:
+        return f"{SYSTEM_INSTRUCTIONS}\n\nCONTEXT:\n{context}"
+    return [
+        {"type": "text", "text": SYSTEM_INSTRUCTIONS},
+        {
+            "type": "text",
+            "text": f"CONTEXT:\n{context}",
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+
+
 async def chat(
     question: str,
     context_chunks: list[str],
     history: list[dict] | None = None,
+    cacheable: bool = False,
 ) -> Answer:
     """Answer `question` from `context_chunks`, failing over across providers.
 
@@ -193,22 +219,30 @@ async def chat(
     {"role": "user"|"assistant", "text": str} - replayed so follow-up questions
     like "what about the second one?" resolve against what was already said.
 
+    `cacheable` marks the context as worth an Anthropic prompt-cache
+    breakpoint (see _system_content) - set it when the same large context is
+    likely to be resent on the next turn, e.g. whole-document mode.
+
     Raises NoProviderConfigured if nothing has a key, or AllProvidersFailed if
     every provider in the chain was tried and none answered.
     """
     context = "\n\n---\n\n".join(context_chunks) if context_chunks else "(no matching context found)"
-    messages = [SystemMessage(content=SYSTEM_PROMPT.format(context=context))]
 
-    for turn in history or []:
-        text = turn.get("text") or ""
-        if not text:
-            continue
-        if turn.get("role") == "assistant":
-            messages.append(AIMessage(content=text))
-        else:
-            messages.append(HumanMessage(content=text))
+    def build_messages(cache: bool) -> list:
+        messages = [SystemMessage(content=_system_content(context, cache))]
+        for turn in history or []:
+            text = turn.get("text") or ""
+            if not text:
+                continue
+            if turn.get("role") == "assistant":
+                messages.append(AIMessage(content=text))
+            else:
+                messages.append(HumanMessage(content=text))
+        messages.append(HumanMessage(content=question))
+        return messages
 
-    messages.append(HumanMessage(content=question))
+    plain_messages = build_messages(cache=False)
+    cached_messages = build_messages(cache=True) if cacheable else plain_messages
 
     chain = provider_chain()
     if not chain:
@@ -219,6 +253,7 @@ async def chat(
 
     failures: list[tuple[str, str]] = []
     for provider in chain:
+        messages = cached_messages if provider == "anthropic" else plain_messages
         try:
             response = await get_chat_model(provider).ainvoke(messages)
         except Exception as exc:  # noqa: BLE001 - any failure means try the next one

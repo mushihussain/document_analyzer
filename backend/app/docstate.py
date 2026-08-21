@@ -23,18 +23,25 @@ def signature(path: Path) -> tuple[int, float]:
     return stat.st_size, stat.st_mtime
 
 
-def load() -> dict[str, dict]:
-    """Everything currently indexed, keyed by resolved absolute path."""
+def load(user_id: int) -> dict[str, dict]:
+    """Everything currently indexed for one user, keyed by resolved absolute path.
+
+    Per-user workspaces mean paths never collide across users anyway, but
+    filtering by user_id keeps this from ever depending on that.
+    """
     with db.connect() as conn:
         rows = conn.execute(
             """SELECT doc_path, doc_name, size, mtime, chunk_size, chunk_overlap,
                       chunk_count, indexed_at
-                 FROM indexed_documents"""
+                 FROM indexed_documents
+                WHERE user_id = ?""",
+            (user_id,),
         ).fetchall()
     return {row["doc_path"]: dict(row) for row in rows}
 
 
 def record(
+    user_id: int,
     doc_path: str,
     doc_name: str,
     size: int,
@@ -46,10 +53,11 @@ def record(
     with db.connect() as conn:
         conn.execute(
             """INSERT INTO indexed_documents
-                   (doc_path, doc_name, size, mtime, chunk_size, chunk_overlap,
-                    chunk_count, indexed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   (doc_path, user_id, doc_name, size, mtime, chunk_size,
+                    chunk_overlap, chunk_count, indexed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(doc_path) DO UPDATE SET
+                   user_id       = excluded.user_id,
                    doc_name      = excluded.doc_name,
                    size          = excluded.size,
                    mtime         = excluded.mtime,
@@ -59,6 +67,7 @@ def record(
                    indexed_at    = excluded.indexed_at""",
             (
                 doc_path,
+                user_id,
                 doc_name,
                 size,
                 mtime,
@@ -70,17 +79,23 @@ def record(
         )
 
 
-def forget(doc_path: str) -> None:
+def forget(user_id: int, doc_path: str) -> None:
     with db.connect() as conn:
-        conn.execute("DELETE FROM indexed_documents WHERE doc_path = ?", (doc_path,))
+        conn.execute(
+            "DELETE FROM indexed_documents WHERE user_id = ? AND doc_path = ?",
+            (user_id, doc_path),
+        )
 
 
-def forget_name(doc_name: str) -> None:
+def forget_name(user_id: int, doc_name: str) -> None:
     """Used when a document is dropped by name, matching the vector store."""
     with db.connect() as conn:
-        conn.execute("DELETE FROM indexed_documents WHERE doc_name = ?", (doc_name,))
+        conn.execute(
+            "DELETE FROM indexed_documents WHERE user_id = ? AND doc_name = ?",
+            (user_id, doc_name),
+        )
 
 
-def clear() -> None:
+def clear(user_id: int) -> None:
     with db.connect() as conn:
-        conn.execute("DELETE FROM indexed_documents")
+        conn.execute("DELETE FROM indexed_documents WHERE user_id = ?", (user_id,))

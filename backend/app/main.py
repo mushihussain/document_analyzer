@@ -56,8 +56,13 @@ _bearer = HTTPBearer(auto_error=False)
 
 @app.get("/api/health")
 async def health():
-    """Unauthenticated liveness probe."""
-    return {"status": "ok", "indexed_chunks": vectorstore.count()}
+    """Unauthenticated liveness probe.
+
+    Doesn't report an indexed-chunk count here - the index is now per-user
+    (see vectorstore.py), and there's no "current user" on an unauthenticated
+    probe to count for.
+    """
+    return {"status": "ok"}
 
 
 @app.post("/api/auth/register", response_model=AuthResponse)
@@ -163,8 +168,9 @@ async def delete_conversation(conversation_id: int, user: User = Depends(auth.cu
 
 @app.get("/api/documents", response_model=list[DocumentInfo])
 async def list_documents(user: User = Depends(auth.current_user)):
-    on_disk = {p.name for p in ingest.list_documents(settings.documents_folder)}
-    indexed = set(vectorstore.list_indexed_documents())
+    folder = ingest.user_folder(settings.documents_folder, user.id)
+    on_disk = {p.name for p in ingest.list_documents(str(folder))}
+    indexed = set(vectorstore.list_indexed_documents(user.id))
     return [DocumentInfo(name=name, indexed=name in indexed) for name in sorted(on_disk)]
 
 
@@ -172,13 +178,15 @@ async def list_documents(user: User = Depends(auth.current_user)):
 async def get_document_file(name: str, user: User = Depends(auth.current_user)):
     """Serve one source file so chat citations can be opened, not just quoted.
 
-    Matched by sanitized basename against the documents folder rather than a
-    raw path, for the same traversal reasons uploads are sanitized - `name`
-    here comes straight from the client.
+    Matched by sanitized basename against the caller's own workspace folder
+    rather than a raw path, for the same traversal reasons uploads are
+    sanitized - `name` here comes straight from the client. Scoping to the
+    caller's folder also means one user can't fetch another's file by name.
     """
+    folder = ingest.user_folder(settings.documents_folder, user.id)
     safe_name = ingest.sanitize_filename(name)
     match = next(
-        (p for p in ingest.list_documents(settings.documents_folder) if p.name == safe_name),
+        (p for p in ingest.list_documents(str(folder)) if p.name == safe_name),
         None,
     )
     if match is None:
@@ -190,29 +198,30 @@ async def get_document_file(name: str, user: User = Depends(auth.current_user)):
 
 @app.post("/api/documents/clear", response_model=ClearResponse)
 async def clear_documents(user: User = Depends(auth.current_user)):
-    """Delete every file in the documents folder and wipe the index clean.
+    """Delete every file in the caller's workspace and wipe their index clean.
 
     Destructive and irreversible - the frontend requires an explicit confirm
     before calling this. For starting over, rather than pruning one file at
-    a time.
+    a time. Only ever touches the caller's own workspace.
     """
+    folder = ingest.user_folder(settings.documents_folder, user.id)
     removed = 0
-    for path in ingest.list_documents(settings.documents_folder):
+    for path in ingest.list_documents(str(folder)):
         try:
             path.unlink()
             removed += 1
         except OSError as exc:
             log.warning("[clear] could not delete %s: %s", path, exc)
 
-    vectorstore.reset_collection()
-    docstate.clear()
+    vectorstore.reset_collection(user.id)
+    docstate.clear(user.id)
 
     return ClearResponse(removed=removed)
 
 
 @app.post("/api/ingest", response_model=IngestResponse)
 async def ingest_folder(force: bool = False, user: User = Depends(auth.current_user)):
-    """Bring the index in line with the documents folder, incrementally.
+    """Bring the caller's index in line with their workspace folder, incrementally.
 
     Only files that are new or changed since the last run are re-read; unchanged
     ones are left alone, which matters a lot once images are involved since each
@@ -221,13 +230,14 @@ async def ingest_folder(force: bool = False, user: User = Depends(auth.current_u
     """
     # Extraction (OCR, PDF parsing) and embedding are blocking CPU work; keep
     # them off the event loop so one big rescan doesn't stall other requests.
-    return await run_in_threadpool(_run_ingest, force)
+    return await run_in_threadpool(_run_ingest, force, user.id)
 
 
-def _run_ingest(force: bool) -> IngestResponse:
-    known = docstate.load()
+def _run_ingest(force: bool, user_id: int) -> IngestResponse:
+    folder = ingest.user_folder(settings.documents_folder, user_id)
+    known = docstate.load(user_id)
     plan = ingest.plan_incremental(
-        settings.documents_folder,
+        str(folder),
         known,
         settings.chunk_size,
         settings.chunk_overlap,
@@ -236,8 +246,8 @@ def _run_ingest(force: bool) -> IngestResponse:
 
     # Files gone from disk shouldn't keep answering questions.
     for doc_path in plan.removed:
-        vectorstore.delete_document_path(doc_path)
-        docstate.forget(doc_path)
+        vectorstore.delete_document_path(user_id, doc_path)
+        docstate.forget(user_id, doc_path)
     removed = len(plan.removed)
 
     chunks_written = 0
@@ -263,12 +273,13 @@ def _run_ingest(force: bool) -> IngestResponse:
         # that shrank doesn't leave the tail of its previous version behind.
         # Deleting by name as well as by path sweeps up strays written before
         # paths were normalised to absolute.
-        vectorstore.delete_document_path(key)
-        vectorstore.delete_document(path.name)
+        vectorstore.delete_document_path(user_id, key)
+        vectorstore.delete_document(user_id, path.name)
 
-        _index_chunks(chunks)
+        _index_chunks(user_id, chunks)
         chunks_written += len(chunks)
         docstate.record(
+            user_id=user_id,
             doc_path=key,
             doc_name=path.name,
             size=size,
@@ -285,7 +296,7 @@ def _run_ingest(force: bool) -> IngestResponse:
     # Reconcile whatever is left against the folder. plan.removed only knows
     # about files whose state was tracked, so this is what clears chunks orphaned
     # by files deleted before tracking existed - or by a changed folder setting.
-    removed += _prune_orphans({str(p) for p in plan.to_index + plan.unchanged})
+    removed += _prune_orphans(user_id, {str(p) for p in plan.to_index + plan.unchanged})
 
     log.info(
         "[ingest] %d added, %d updated, %d unchanged, %d removed, %d failed (%d chunks written)",
@@ -308,15 +319,15 @@ def _run_ingest(force: bool) -> IngestResponse:
     )
 
 
-def _prune_orphans(live_paths: set[str]) -> int:
+def _prune_orphans(user_id: int, live_paths: set[str]) -> int:
     """Drop chunks for any path the folder no longer contains."""
     pruned = 0
-    for indexed_path in vectorstore.list_indexed_paths():
+    for indexed_path in vectorstore.list_indexed_paths(user_id):
         if indexed_path in live_paths:
             continue
         log.info("[ingest] purging orphaned chunks for %s", indexed_path)
-        vectorstore.delete_document_path(indexed_path)
-        docstate.forget(indexed_path)
+        vectorstore.delete_document_path(user_id, indexed_path)
+        docstate.forget(user_id, indexed_path)
         pruned += 1
     return pruned
 
@@ -325,14 +336,15 @@ def _prune_orphans(live_paths: set[str]) -> int:
 async def upload_documents(
     files: list[UploadFile] = File(...), user: User = Depends(auth.current_user)
 ):
-    """Accept one or more uploads, write them into the documents folder, and
-    index each straight away so it is queryable without a separate rescan.
-    Unsupported or oversized files are reported back rather than aborting the
-    whole batch.
+    """Accept one or more uploads, write them into the caller's workspace
+    folder, and index each straight away so it is queryable without a
+    separate rescan. Unsupported or oversized files are reported back rather
+    than aborting the whole batch.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded")
 
+    folder = ingest.user_folder(settings.documents_folder, user.id)
     max_bytes = settings.max_upload_mb * 1024 * 1024
     uploaded: list[UploadedDocument] = []
     skipped: list[SkippedUpload] = []
@@ -354,7 +366,7 @@ async def upload_documents(
             continue
 
         try:
-            dest = ingest.resolve_upload_path(settings.documents_folder, name)
+            dest = ingest.resolve_upload_path(str(folder), name)
         except ValueError as exc:
             skipped.append(SkippedUpload(name=name, reason=str(exc)))
             continue
@@ -389,15 +401,16 @@ async def upload_documents(
             await upload.close()
 
         if replaced:
-            vectorstore.delete_document(name)
-            vectorstore.delete_document_path(str(dest))
-        await run_in_threadpool(_index_chunks, chunks)
+            vectorstore.delete_document(user.id, name)
+            vectorstore.delete_document_path(user.id, str(dest))
+        await run_in_threadpool(_index_chunks, user.id, chunks)
 
         # Record it as indexed so the next rescan treats it as unchanged rather
         # than re-extracting (and re-OCR'ing) what we just processed.
         try:
             size, mtime = docstate.signature(dest)
             docstate.record(
+                user_id=user.id,
                 doc_path=str(dest),
                 doc_name=name,
                 size=size,
@@ -458,10 +471,11 @@ def _chunk_metadata(c: ingest.Chunk) -> dict:
     return meta
 
 
-def _index_chunks(chunks: list[ingest.Chunk]) -> None:
+def _index_chunks(user_id: int, chunks: list[ingest.Chunk]) -> None:
     if not chunks:
         return
     vectorstore.add_chunks(
+        user_id=user_id,
         ids=[c.chunk_id for c in chunks],
         texts=[c.text for c in chunks],
         metadatas=[_chunk_metadata(c) for c in chunks],
@@ -479,7 +493,7 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
     if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty")
 
-    if vectorstore.count() == 0:
+    if vectorstore.count(user.id) == 0:
         raise HTTPException(
             status_code=409,
             detail="No documents indexed yet. Upload a document or rescan the folder first.",
@@ -508,7 +522,7 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
     truncated = False
 
     if full_document:
-        doc_chunks = vectorstore.get_document_chunks(req.doc_name)
+        doc_chunks = vectorstore.get_document_chunks(user.id, req.doc_name)
         if not doc_chunks:
             raise HTTPException(
                 status_code=404, detail=f"'{req.doc_name}' is not an indexed document."
@@ -533,7 +547,7 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
             for c in doc_chunks[:5]
         ]
     else:
-        results = vectorstore.similarity_search(question, settings.top_k)
+        results = vectorstore.similarity_search(user.id, question, settings.top_k)
         context_chunks = [r.page_content for r in results]
         sources = [
             SourceSnippet(
@@ -545,7 +559,7 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
         ]
 
     try:
-        answer = await llm.chat(question, context_chunks, history)
+        answer = await llm.chat(question, context_chunks, history, cacheable=full_document)
     except llm.NoProviderConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except llm.AllProvidersFailed as exc:

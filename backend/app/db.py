@@ -50,9 +50,13 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- What the vector index currently holds, so a rescan can chunk only the files
 -- that are new or changed instead of the whole folder. Keyed on the resolved
--- absolute path, which is also what chunk ids are derived from.
+-- absolute path, which is also what chunk ids are derived from. Per-user
+-- workspaces mean two users' paths never collide anyway, but user_id is kept
+-- as its own column (rather than relying on path prefixes) so every lookup
+-- can filter on it directly.
 CREATE TABLE IF NOT EXISTS indexed_documents (
     doc_path      TEXT PRIMARY KEY,
+    user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
     doc_name      TEXT NOT NULL,
     size          INTEGER NOT NULL,
     mtime         REAL NOT NULL,
@@ -67,6 +71,10 @@ CREATE INDEX IF NOT EXISTS idx_indexed_documents_name ON indexed_documents(doc_n
 CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, id);
 """
+# idx_indexed_documents_user is created in _migrate(), not here: on an old
+# database this script runs before _migrate() has added the user_id column,
+# and CREATE INDEX (unlike CREATE TABLE) has no "add the missing column for
+# me" behavior - it would just fail with "no such column".
 
 _initialized = False
 
@@ -116,6 +124,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
     if "provider" not in columns:
         conn.execute("ALTER TABLE messages ADD COLUMN provider TEXT")
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(indexed_documents)")}
+    if "user_id" not in columns:
+        # Existing rows land as user_id = NULL - they predate per-user
+        # workspaces and belonged to the old shared folder, so they're left
+        # in place but won't match any user-scoped query going forward.
+        conn.execute("ALTER TABLE indexed_documents ADD COLUMN user_id INTEGER")
+    # Column is guaranteed to exist above this line (pre-existing, just added,
+    # or created inline by the CREATE TABLE for a brand-new database) - safe
+    # to index unconditionally.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_indexed_documents_user ON indexed_documents(user_id)"
+    )
 
 
 def init() -> None:

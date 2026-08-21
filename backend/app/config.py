@@ -33,9 +33,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
 
-    # Claude - https://console.anthropic.com/
+    # Claude - last resort in the chain (see llm_providers above), so it's
+    # rarely on the hot path. Haiku is the right default for that: cheap and
+    # fast, with quality to spare for a fallback role. Bump to a Sonnet/Opus
+    # model here if the fallback answers need to be smarter, not just cheaper.
     anthropic_api_key: str = ""
-    chat_model: str = "claude-sonnet-4-6"
+    chat_model: str = "claude-haiku-4-5-20251001"
 
     # Per-provider request timeout, seconds. Kept short so a stalled provider
     # hands over to the next one quickly instead of hanging the request.

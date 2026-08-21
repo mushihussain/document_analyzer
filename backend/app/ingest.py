@@ -49,6 +49,16 @@ class Chunk:
     page: int | None = None
 
 
+def user_folder(base: str, user_id: int) -> Path:
+    """Where one user's documents live: a private subfolder under `base`.
+
+    Keyed on the numeric user id rather than username - it's stable (doesn't
+    change if the account is ever renamed) and needs no sanitizing, unlike an
+    arbitrary user-supplied name.
+    """
+    return Path(base).resolve() / f"user_{user_id}"
+
+
 def list_documents(folder: str) -> list[Path]:
     """Supported files under `folder`, as resolved absolute paths.
 
