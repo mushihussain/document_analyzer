@@ -6,19 +6,22 @@ export interface AuthResponse {
   token: string;
   username: string;
   expires_at: string;
+  is_admin: boolean;
 }
 
 interface StoredSession {
   token: string;
   username: string;
   expires_at: string;
+  isAdmin: boolean;
 }
 
 const STORAGE_KEY = 'document-analyzer.session';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly baseUrl = 'http://localhost:8000/api/auth';
+  // See api.service.ts - relative so the same build works in dev and prod.
+  private readonly baseUrl = '/api/auth';
   private session: StoredSession | null = null;
 
   /** Emits the signed-in username, or null when signed out. */
@@ -39,6 +42,10 @@ export class AuthService {
 
   get isSignedIn(): boolean {
     return this.session !== null;
+  }
+
+  get isAdmin(): boolean {
+    return this.session?.isAdmin ?? false;
   }
 
   login(username: string, password: string): Observable<AuthResponse> {
@@ -70,7 +77,12 @@ export class AuthService {
   }
 
   private store(res: AuthResponse): void {
-    this.session = { token: res.token, username: res.username, expires_at: res.expires_at };
+    this.session = {
+      token: res.token,
+      username: res.username,
+      expires_at: res.expires_at,
+      isAdmin: res.is_admin,
+    };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session));
     this.user$.next(res.username);
   }

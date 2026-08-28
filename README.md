@@ -221,6 +221,11 @@ Open `http://localhost:4200`, create an account, then either drop files onto
 is already in `DOCUMENTS_FOLDER`. Ask away - each exchange is filed in the
 **Previous Chats** panel on the right.
 
+## Deploying
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for a from-scratch runbook (Ubuntu VPS,
+systemd, Nginx, HTTPS).
+
 ## Notes / next steps
 
 - Chunking is a simple sliding character window (`ingest.py`) - swap for a
@@ -239,7 +244,9 @@ is already in `DOCUMENTS_FOLDER`. Ask away - each exchange is filed in the
 - Add a file-watcher (`watchdog` is already in requirements.txt) to trigger the
   incremental rescan automatically on file changes instead of manually. Now that
   rescans are cheap when nothing changed, this is a small step.
-- Model IDs go stale. `CHAT_MODEL` defaults to `claude-sonnet-4-6`; check
+- Model IDs go stale. `CHAT_MODEL` defaults to `claude-haiku-4-5-20251001`
+  (Claude is last resort in the provider chain, so cheap/fast beats "smartest"
+  there); check
   https://docs.claude.com/en/docs/about-claude/models/overview for the current
   recommendation, and Groq/OpenRouter's own model lists for theirs - a retired
   ID shows up as a 404 and the chain silently moves to the next provider, so

@@ -14,11 +14,13 @@ export class HistoryComponent {
   @Input() activeId: number | null = null;
   @Input() loading = false;
   @Input() username: string | null = null;
+  @Input() isAdmin = false;
 
   @Output() newChat = new EventEmitter<void>();
   @Output() select = new EventEmitter<number>();
   @Output() remove = new EventEmitter<number>();
   @Output() signOut = new EventEmitter<void>();
+  @Output() openAdmin = new EventEmitter<void>();
 
   confirmingId: number | null = null;
 

@@ -105,9 +105,22 @@ export interface ConversationDetail {
   messages: ChatMessage[];
 }
 
+export interface AdminUserSummary {
+  id: number;
+  username: string;
+  created_at: string;
+  is_admin: boolean;
+  is_disabled: boolean;
+  document_count: number;
+  conversation_count: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly baseUrl = 'http://localhost:8000/api';
+  // Relative, not absolute - Nginx (prod) or the dev-server proxy (see
+  // proxy.conf.json) forwards this to the backend, so the same build works
+  // whether it's opened from localhost or the deployed domain.
+  private readonly baseUrl = '/api';
 
   constructor(private http: HttpClient) {}
 
@@ -155,6 +168,29 @@ export class ApiService {
     return this.http.get(`${this.baseUrl}/documents/${encodeURIComponent(name)}/file`, {
       responseType: 'blob',
     });
+  }
+
+  // --- Admin (requires an admin account; see ADMIN_USERNAMES) --------------
+
+  listAdminUsers(): Observable<AdminUserSummary[]> {
+    return this.http.get<AdminUserSummary[]>(`${this.baseUrl}/admin/users`);
+  }
+
+  setUserDisabled(userId: number, disabled: boolean): Observable<AdminUserSummary> {
+    return this.http.patch<AdminUserSummary>(`${this.baseUrl}/admin/users/${userId}`, {
+      disabled,
+    });
+  }
+
+  resetUserPassword(userId: number, newPassword: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/admin/users/${userId}/reset-password`, {
+      new_password: newPassword,
+    });
+  }
+
+  /** Deletes the account, their conversations, documents, and vector index. Irreversible. */
+  deleteUser(userId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/admin/users/${userId}`);
   }
 
   listProviders(): Observable<ProviderStatus[]> {

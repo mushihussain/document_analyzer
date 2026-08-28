@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     # How long a login stays valid (default: two weeks)
     session_ttl_hours: int = 24 * 14
 
+    # Comma-separated usernames with access to the admin page (/api/admin/*).
+    # Matched case-insensitively; blank means nobody has admin access. Editing
+    # this and restarting the backend is currently the only way to grant or
+    # revoke admin - there's no in-app UI for it, to keep that capability out
+    # of reach of anyone who isn't already trusted with server config.
+    admin_usernames: str = ""
+
     # --- Answer generation ---------------------------------------------------
     # Providers are tried left to right; when one is rate limited or out of
     # quota the next one answers instead. Providers without an API key are

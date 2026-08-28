@@ -34,6 +34,9 @@
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
             "production": { "buildTarget": "document-analyzer-ui:build:production" },
             "development": { "buildTarget": "document-analyzer-ui:build:development" }

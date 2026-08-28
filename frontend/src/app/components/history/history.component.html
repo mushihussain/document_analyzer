@@ -51,6 +51,7 @@
 
   <div class="account" *ngIf="username">
     <span class="account-name" [title]="username">{{ username }}</span>
+    <button class="admin-link" *ngIf="isAdmin" (click)="openAdmin.emit()">Admin</button>
     <button class="sign-out" (click)="signOut.emit()">Sign out</button>
   </div>
 </aside>

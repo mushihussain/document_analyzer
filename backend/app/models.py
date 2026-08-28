@@ -54,10 +54,12 @@ class AuthResponse(BaseModel):
     token: str
     username: str
     expires_at: str
+    is_admin: bool = False
 
 
 class UserInfo(BaseModel):
     username: str
+    is_admin: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -127,3 +129,21 @@ class ConversationDetail(BaseModel):
 
 class RenameRequest(BaseModel):
     title: str
+
+
+class AdminUserSummary(BaseModel):
+    id: int
+    username: str
+    created_at: str
+    is_admin: bool
+    is_disabled: bool
+    document_count: int
+    conversation_count: int
+
+
+class AdminSetDisabledRequest(BaseModel):
+    disabled: bool
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str

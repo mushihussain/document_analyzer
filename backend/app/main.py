@@ -8,10 +8,13 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, conversations, db, docstate, ingest, llm, ocr, vectorstore
+from . import admin, auth, conversations, db, docstate, ingest, llm, ocr, vectorstore
 from .auth import User
 from .config import settings
 from .models import (
+    AdminResetPasswordRequest,
+    AdminSetDisabledRequest,
+    AdminUserSummary,
     AuthResponse,
     ChatMessage,
     ChatRequest,
@@ -72,7 +75,9 @@ async def register(req: RegisterRequest):
     except auth.AuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     token, expires_at = auth.create_session(user)
-    return AuthResponse(token=token, username=user.username, expires_at=expires_at)
+    return AuthResponse(
+        token=token, username=user.username, expires_at=expires_at, is_admin=user.is_admin
+    )
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
@@ -82,7 +87,9 @@ async def login(req: LoginRequest):
     except auth.AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     token, expires_at = auth.create_session(user)
-    return AuthResponse(token=token, username=user.username, expires_at=expires_at)
+    return AuthResponse(
+        token=token, username=user.username, expires_at=expires_at, is_admin=user.is_admin
+    )
 
 
 @app.post("/api/auth/logout", status_code=204)
@@ -94,7 +101,51 @@ async def logout(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
 
 @app.get("/api/auth/me", response_model=UserInfo)
 async def me(user: User = Depends(auth.current_user)):
-    return UserInfo(username=user.username)
+    return UserInfo(username=user.username, is_admin=user.is_admin)
+
+
+@app.get("/api/admin/users", response_model=list[AdminUserSummary])
+async def admin_list_users(_admin: User = Depends(auth.require_admin)):
+    return admin.list_users()
+
+
+@app.patch("/api/admin/users/{user_id}", response_model=AdminUserSummary)
+async def admin_set_disabled(
+    user_id: int, req: AdminSetDisabledRequest, current_admin: User = Depends(auth.require_admin)
+):
+    if user_id == current_admin.id and req.disabled:
+        raise HTTPException(status_code=400, detail="You can't disable your own account")
+    try:
+        admin.set_disabled(user_id, req.disabled)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="User not found")
+    return admin.get_user(user_id)
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", status_code=204)
+async def admin_reset_password(
+    user_id: int, req: AdminResetPasswordRequest, _admin: User = Depends(auth.require_admin)
+):
+    if admin.get_user(user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        auth.admin_set_password(user_id, req.new_password)
+    except auth.AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204)
+async def admin_delete_user(user_id: int, current_admin: User = Depends(auth.require_admin)):
+    """Deletes the account, their conversations/sessions, their document
+    folder, and their vector collection. Irreversible - the frontend
+    requires an explicit confirm before calling this.
+    """
+    if user_id == current_admin.id:
+        raise HTTPException(status_code=400, detail="You can't delete your own account")
+    try:
+        admin.delete_user(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 @app.get("/api/providers", response_model=list[ProviderStatus])

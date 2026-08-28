@@ -9,7 +9,7 @@
   {{ sourceOpenError }}
 </div>
 
-<div class="shell" *ngIf="signedIn">
+<div class="shell" *ngIf="signedIn && !showAdmin">
   <app-documents
     [documents]="documents"
     [scanning]="scanning"
@@ -40,9 +40,15 @@
     [activeId]="activeConversationId"
     [loading]="loadingHistory"
     [username]="username"
+    [isAdmin]="isAdmin"
     (newChat)="newChat()"
     (select)="openConversation($event)"
     (remove)="deleteConversation($event)"
     (signOut)="signOut()"
+    (openAdmin)="showAdmin = true"
   ></app-history>
+</div>
+
+<div class="shell" *ngIf="signedIn && showAdmin">
+  <app-admin [username]="username" (back)="showAdmin = false"></app-admin>
 </div>

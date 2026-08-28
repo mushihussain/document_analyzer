@@ -1,0 +1,98 @@
+<section class="admin-page">
+  <div class="header">
+    <div class="header-text">
+      <span class="eyebrow">Administration</span>
+      <h1>User Accounts</h1>
+    </div>
+    <button class="back-btn" (click)="back.emit()">&larr; Back to app</button>
+  </div>
+
+  <p class="error" *ngIf="error" (click)="error = null" title="Dismiss">{{ error }}</p>
+
+  <p class="loading" *ngIf="loading">Loading accounts&hellip;</p>
+
+  <div class="table-wrap" *ngIf="!loading && users.length">
+    <table>
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Joined</th>
+          <th>Docs</th>
+          <th>Chats</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let user of users" [class.self-row]="isSelf(user)">
+          <td>
+            <span class="username">{{ user.username }}</span>
+            <span class="tag tag-you" *ngIf="isSelf(user)">you</span>
+            <span class="tag tag-admin" *ngIf="user.is_admin">admin</span>
+          </td>
+          <td class="mono">{{ user.created_at | slice: 0:10 }}</td>
+          <td class="mono">{{ user.document_count }}</td>
+          <td class="mono">{{ user.conversation_count }}</td>
+          <td>
+            <span class="tag" [class.tag-disabled]="user.is_disabled" [class.tag-active]="!user.is_disabled">
+              {{ user.is_disabled ? 'disabled' : 'active' }}
+            </span>
+          </td>
+          <td class="actions">
+            <ng-container *ngIf="confirmingDeleteId !== user.id">
+              <button
+                class="action"
+                [disabled]="isSelf(user) || busyId === user.id"
+                (click)="toggleDisabled(user)"
+              >
+                {{ user.is_disabled ? 'Enable' : 'Disable' }}
+              </button>
+              <button class="action" [disabled]="busyId === user.id" (click)="startReset(user)">
+                Reset password
+              </button>
+              <button
+                class="action action-danger"
+                [disabled]="isSelf(user) || busyId === user.id"
+                (click)="askDelete(user)"
+              >
+                Delete
+              </button>
+            </ng-container>
+
+            <span class="confirm" *ngIf="confirmingDeleteId === user.id">
+              <span class="confirm-text">Delete {{ user.username }} and all their data?</span>
+              <button class="confirm-yes" (click)="confirmDelete(user)">Delete</button>
+              <button class="confirm-no" (click)="cancelDelete()">Keep</button>
+            </span>
+          </td>
+        </tr>
+
+        <tr class="reset-row" *ngIf="resettingId !== null">
+          <td colspan="6">
+            <ng-container *ngFor="let user of users">
+              <div class="reset-form" *ngIf="resettingId === user.id">
+                <span class="reset-label">New password for {{ user.username }}:</span>
+                <input
+                  type="password"
+                  [(ngModel)]="newPassword"
+                  placeholder="At least 8 characters"
+                  autocomplete="new-password"
+                  (keydown.enter)="confirmReset(user)"
+                />
+                <button class="confirm-yes" [disabled]="resetting" (click)="confirmReset(user)">
+                  {{ resetting ? 'Setting…' : 'Set password' }}
+                </button>
+                <button class="confirm-no" [disabled]="resetting" (click)="cancelReset()">
+                  Cancel
+                </button>
+                <span class="reset-error" *ngIf="resetError">{{ resetError }}</span>
+              </div>
+            </ng-container>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="empty-state" *ngIf="!loading && !users.length">No accounts found.</p>
+</section>

@@ -40,6 +40,7 @@ _bearer = HTTPBearer(auto_error=False)
 class User:
     id: int
     username: str
+    is_admin: bool = False
 
 
 class AuthError(Exception):
@@ -54,6 +55,12 @@ def _hash(password: str, salt: str) -> str:
 
 def normalize_username(username: str) -> str:
     return username.strip()
+
+
+def is_admin_username(username: str) -> bool:
+    """Whether `username` is listed in ADMIN_USERNAMES (case-insensitive)."""
+    admins = {n.strip().lower() for n in settings.admin_usernames.split(",") if n.strip()}
+    return username.lower() in admins
 
 
 def validate_credentials(username: str, password: str) -> None:
@@ -80,14 +87,16 @@ def register(username: str, password: str) -> User:
             "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
             (username, _hash(password, salt), salt, db.utcnow()),
         )
-        return User(id=int(cur.lastrowid), username=username)
+        return User(
+            id=int(cur.lastrowid), username=username, is_admin=is_admin_username(username)
+        )
 
 
 def authenticate(username: str, password: str) -> User:
     username = normalize_username(username)
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT id, username, password_hash, salt FROM users WHERE username = ?",
+            "SELECT id, username, password_hash, salt, is_disabled FROM users WHERE username = ?",
             (username,),
         ).fetchone()
 
@@ -98,7 +107,10 @@ def authenticate(username: str, password: str) -> User:
     if not hmac.compare_digest(row["password_hash"], _hash(password, row["salt"])):
         raise AuthError("Incorrect username or password")
 
-    return User(id=row["id"], username=row["username"])
+    if row["is_disabled"]:
+        raise AuthError("This account has been disabled")
+
+    return User(id=row["id"], username=row["username"], is_admin=is_admin_username(row["username"]))
 
 
 def create_session(user: User) -> tuple[str, str]:
@@ -128,7 +140,7 @@ def end_session(token: str) -> None:
 def user_for_token(token: str) -> User | None:
     with db.connect() as conn:
         row = conn.execute(
-            """SELECT u.id, u.username, s.expires_at
+            """SELECT u.id, u.username, u.is_disabled, s.expires_at
                  FROM sessions s JOIN users u ON u.id = s.user_id
                 WHERE s.token = ?""",
             (token,),
@@ -138,7 +150,11 @@ def user_for_token(token: str) -> User | None:
         if row["expires_at"] <= db.utcnow():
             conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
             return None
-    return User(id=row["id"], username=row["username"])
+        if row["is_disabled"]:
+            # Don't drop the session row itself - re-enabling should just work
+            # again without the user having to log back in.
+            return None
+    return User(id=row["id"], username=row["username"], is_admin=is_admin_username(row["username"]))
 
 
 def current_user(
@@ -160,3 +176,36 @@ def current_user(
     if user is None:
         raise unauthorized
     return user
+
+
+def require_admin(user: User = Depends(current_user)) -> User:
+    """FastAPI dependency for /api/admin/* - 403s for anyone not in ADMIN_USERNAMES.
+
+    Layers on top of current_user, so an unauthenticated request still 401s
+    first; only a signed-in non-admin gets the 403.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return user
+
+
+def admin_set_password(user_id: int, new_password: str) -> None:
+    """Set a new password for `user_id` and sign them out everywhere.
+
+    There's no self-service reset flow, so this is how a locked-out user
+    gets back in - an admin sets a new password out of band and passes it on.
+    Existing sessions are revoked so the reset actually takes effect
+    immediately, rather than leaving whoever holds the old session logged in.
+    """
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        raise AuthError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+
+    salt = secrets.token_hex(_SALT_BYTES)
+    with db.connect() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+            (_hash(new_password, salt), salt, user_id),
+        )
+        if cur.rowcount == 0:
+            raise AuthError("User not found")
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))

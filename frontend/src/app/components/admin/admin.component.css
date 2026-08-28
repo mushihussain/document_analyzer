@@ -1,0 +1,255 @@
+.admin-page {
+  flex: 1;
+  height: 100%;
+  overflow-y: auto;
+  padding: 28px 32px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--amber-500);
+}
+
+.header h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 28px;
+  margin: 6px 0 0;
+}
+
+.back-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--paper-100);
+  border: 1px solid var(--teal-500);
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.back-btn:hover {
+  background: rgba(79, 166, 149, 0.15);
+}
+
+.error {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: #d98b7a;
+  background: rgba(217, 139, 122, 0.1);
+  border: 1px solid #d98b7a;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 0 0 16px;
+  cursor: pointer;
+}
+
+.loading,
+.empty-state {
+  color: var(--paper-200);
+  font-size: 13px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper-200);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-800);
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr.self-row {
+  background: rgba(79, 166, 149, 0.05);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  color: var(--paper-200);
+  font-size: 12.5px;
+}
+
+.username {
+  font-weight: 600;
+}
+
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  margin-left: 6px;
+}
+
+.tag-you {
+  background: var(--teal-500);
+  color: var(--ink-900);
+}
+
+.tag-admin {
+  background: var(--amber-500);
+  color: var(--ink-900);
+}
+
+.tag-active {
+  background: rgba(79, 166, 149, 0.18);
+  color: var(--teal-400);
+  margin-left: 0;
+}
+
+.tag-disabled {
+  background: rgba(217, 139, 122, 0.15);
+  color: #d98b7a;
+  margin-left: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.action {
+  background: transparent;
+  color: var(--paper-100);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.action:hover:not(:disabled) {
+  border-color: var(--teal-500);
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.action-danger:hover:not(:disabled) {
+  border-color: #d98b7a;
+  color: #d98b7a;
+}
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.confirm-text {
+  font-size: 12px;
+  color: var(--paper-200);
+}
+
+.confirm-yes,
+.confirm-no {
+  padding: 5px 10px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.confirm-yes {
+  background: var(--amber-500);
+  color: var(--ink-900);
+  border: none;
+}
+
+.confirm-yes:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.confirm-no {
+  background: transparent;
+  color: var(--paper-200);
+  border: 1px solid var(--line);
+}
+
+.reset-row td {
+  background: var(--ink-800);
+}
+
+.reset-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reset-label {
+  font-size: 12.5px;
+  color: var(--paper-200);
+  white-space: nowrap;
+}
+
+.reset-form input {
+  background: var(--ink-700);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--paper-100);
+  font-size: 13px;
+  min-width: 200px;
+}
+
+.reset-form input:focus {
+  outline: 2px solid var(--teal-500);
+  outline-offset: 1px;
+}
+
+.reset-error {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #d98b7a;
+}

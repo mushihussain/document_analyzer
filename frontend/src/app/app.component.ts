@@ -18,11 +18,19 @@ import {
 } from './components/chat/chat.component';
 import { HistoryComponent } from './components/history/history.component';
 import { LoginComponent } from './components/login/login.component';
+import { AdminComponent } from './components/admin/admin.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, DocumentsComponent, ChatComponent, HistoryComponent, LoginComponent],
+  imports: [
+    CommonModule,
+    DocumentsComponent,
+    ChatComponent,
+    HistoryComponent,
+    LoginComponent,
+    AdminComponent,
+  ],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css'],
 })
@@ -50,6 +58,8 @@ export class AppComponent implements OnInit {
 
   signedIn = false;
   username: string | null = null;
+  isAdmin = false;
+  showAdmin = false;
 
   sourceOpenError: string | null = null;
 
@@ -62,6 +72,7 @@ export class AppComponent implements OnInit {
       const wasSignedIn = this.signedIn;
       this.signedIn = username !== null;
       this.username = username;
+      this.isAdmin = this.auth.isAdmin;
       if (wasSignedIn && !this.signedIn) {
         this.resetWorkspace();
       }
@@ -90,6 +101,7 @@ export class AppComponent implements OnInit {
     this.lastUpload = null;
     this.uploadError = null;
     this.clearing = false;
+    this.showAdmin = false;
   }
 
   private loadWorkspace(): void {
