@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import admin, auth, conversations, db, docstate, ingest, llm, ocr, vectorstore
 from .auth import User
@@ -49,9 +50,11 @@ app = FastAPI(title="Document Analyzer API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
+    BaseHTTPMiddleware,
     allow_origins=settings.allowed_origins,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"],    
+    max_body_size=50 * 1024 * 1024  # 50MB
 )
 
 _bearer = HTTPBearer(auto_error=False)
