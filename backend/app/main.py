@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import admin, auth, conversations, db, docstate, ingest, llm, ocr, vectorstore
 from .auth import User
@@ -46,15 +45,96 @@ async def lifespan(_: FastAPI):
     yield
 
 
+class MaxBodySizeMiddleware:
+    """Rejects a request body over `max_bytes` with a 413, before any route runs.
+
+    Plain ASGI, not BaseHTTPMiddleware - the latter has to buffer the whole
+    body via `request.body()` to inspect it, which defeats the point for a
+    limit meant to guard against huge uploads. This only counts bytes as the
+    server hands them over, so nothing over the limit is ever held in memory.
+
+    The mid-stream over-limit case is signalled by raising HTTPException(413)
+    rather than a bespoke exception type: FastAPI's own body-parsing code
+    (fastapi/routing.py) wraps request reads in a broad `except Exception`
+    that turns anything else into a generic 400 "error parsing the body" -
+    but explicitly re-raises HTTPException first, which is what lets this
+    reach Starlette's ExceptionMiddleware (nested inside the `self.app(...)`
+    call below) and come out as the intended 413 instead.
+
+    The upfront Content-Length check can't use that same trick - it runs
+    before `self.app(...)` is ever called, so nothing downstream is there to
+    catch an HTTPException; raising one here would instead hit the outermost
+    ServerErrorMiddleware, which treats any exception as an unhandled 500.
+    So that path sends its own 413 directly over the raw ASGI `send`.
+
+    /api/documents/upload already enforces MAX_UPLOAD_MB itself, mid-stream -
+    this doesn't replace that check, it's the catch-all for every other
+    route, none of which had any body-size limit at all before this.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Fast path: a declared Content-Length over the limit is rejected
+        # without reading anything.
+        headers = dict(scope.get("headers") or [])
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > self.max_bytes:
+                    await self._reject(send)
+                    return
+            except ValueError:
+                pass  # malformed header - let the app/ASGI server handle it
+
+        total = 0
+
+        async def receive_wrapper():
+            nonlocal total
+            message = await receive()
+            if message["type"] == "http.request":
+                total += len(message.get("body", b""))
+                if total > self.max_bytes:
+                    raise HTTPException(status_code=413, detail="Request body too large")
+            return message
+
+        await self.app(scope, receive_wrapper, send)
+
+    @staticmethod
+    async def _reject(send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b'{"detail":"Request body too large"}'}
+        )
+
+
 app = FastAPI(title="Document Analyzer API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    BaseHTTPMiddleware,
     allow_origins=settings.allowed_origins,
     allow_methods=["*"],
-    allow_headers=["*"],    
-    max_body_size=50 * 1024 * 1024  # 50MB
+    allow_headers=["*"],
+)
+# Registered after CORS, so it wraps outside it and runs first per request -
+# Starlette builds the stack so whichever middleware is added last ends up
+# outermost. A generous ceiling: comfortably above MAX_UPLOAD_MB so a normal
+# upload is never double-guarded against two different limits, but still a
+# real cap on every other route, which had none before.
+app.add_middleware(
+    MaxBodySizeMiddleware, max_bytes=max(settings.max_upload_mb, 50) * 1024 * 1024 + 1024 * 1024
 )
 
 _bearer = HTTPBearer(auto_error=False)
