@@ -1,9 +1,9 @@
 # Document Analyzer
 
-Reads a folder of documents (`.txt`, `.md`, `.pdf`, `.docx`, plus images via
-OCR), indexes them into a local vector store, and answers questions about them
-through a chat UI - grounded only in what's actually in the folder (RAG), with
-source excerpts shown for every answer.
+Reads a folder of documents (`.txt`, `.md`, `.pdf`, `.docx`, plus images via a
+vision LLM or local OCR), indexes them into a local vector store, and answers
+questions about them through a chat UI - grounded only in what's actually in
+the folder (RAG), with source excerpts shown for every answer.
 
 Built on **LangChain**: retrieval (embeddings + vector search) stays local via a
 small on-device sentence-transformers model, and answer generation runs through a
@@ -43,34 +43,43 @@ rescan a full one. The response reports `added` / `updated` / `unchanged` /
 `removed` plus a `failed` list, and the left panel summarises it: *"Filed 1 new
 (3 passages). 11 unchanged, skipped."*
 
-## File types and image OCR
+## File types and image text extraction
 
 | Type                                          | How text is extracted          |
 |-----------------------------------------------|--------------------------------|
 | `.txt`, `.md`                                 | read directly                  |
 | `.pdf`                                        | `pypdf` text layer             |
 | `.docx`                                       | `python-docx` paragraphs       |
-| `.png` `.jpg` `.jpeg` `.bmp` `.tif` `.tiff` `.webp` | **local OCR** ([ocr.py](backend/app/ocr.py)) |
+| `.png` `.jpg` `.jpeg` `.webp`                 | **vision LLM**, then local OCR ([vision.py](backend/app/vision.py)) |
+| `.bmp` `.tif` `.tiff`                         | **local OCR** only ([ocr.py](backend/app/ocr.py)) |
 
-Images go through **RapidOCR** (PaddleOCR models on onnxruntime). It's
-pip-installable with no system binary to install - unlike Tesseract - and runs
-entirely offline, so OCR stays on the same footing as embeddings: local, free,
-and unaffected by chat-provider rate limits. Once text is extracted an image is
-chunked, embedded, and cited in answers exactly like any other document.
+Images are read by a vision-capable LLM first - Claude, then Groq's vision
+model, in `IMAGE_PROVIDERS` order (default `anthropic,groq`) - which is
+usually more accurate than OCR on handwriting and unusual layouts. `.bmp`
+and `.tif`/`.tiff` skip straight to OCR: they aren't reliably accepted as
+inline input across vision APIs. If no vision provider is configured, or
+every configured one fails (rate limit, no credit), it falls back to local
+**RapidOCR** (PaddleOCR models on onnxruntime) automatically - image uploads
+keep working with zero API keys set, exactly as before this existed.
+RapidOCR is pip-installable with no system binary to chase down - unlike
+Tesseract - and runs entirely offline, so it stays on the same footing as
+embeddings: local, free, and unaffected by chat-provider rate limits. Once
+text is extracted an image is chunked, embedded, and cited in answers
+exactly like any other document.
 
 Upload an image or drop it in `DOCUMENTS_FOLDER` and rescan; both paths work.
-Lines OCR reports below `OCR_MIN_CONFIDENCE` (default 0.5) are discarded as
-noise. Set `OCR_ENABLED=false` to reject images outright - they then become
-uniformly unsupported, rejected at upload and ignored by folder scans, rather
-than stored but unsearchable.
+Set `OCR_ENABLED=false` to reject images outright - this is the one switch
+for "can this app read images at all," and turns off the vision-LLM path too,
+not just the local fallback. When OCR is what actually processed an image
+(no vision provider available, or all failed), lines below
+`OCR_MIN_CONFIDENCE` (default 0.5) are discarded as noise.
 
 An image with no legible text still uploads and is stored, but indexes zero
 chunks, so it can never come back from a search. The API reports this in the
 `note` field and the UI shows it in amber rather than claiming plain success.
-Accuracy is good on screenshots and clean scans, weaker on handwriting, heavy
-skew, and low resolution.
 
-**OCR is slow** - seconds per image, versus milliseconds for a text file. It
+**Both paths are slow relative to text files** - seconds per image, whether
+that's a model call or local OCR, versus milliseconds for a `.txt`. Extraction
 runs in a threadpool so it won't stall other requests, but a rescan over a
 folder of many images takes a while.
 
@@ -84,11 +93,16 @@ same request - no retry needed from the user.
 |-------|------------|--------------------------------------|----------------------|
 | 1     | Groq       | `llama-3.3-70b-versatile`            | `GROQ_API_KEY`       |
 | 2     | OpenRouter | `meta-llama/llama-3.3-70b-instruct`  | `OPENROUTER_API_KEY` |
-| 3     | Claude     | `claude-sonnet-4-6`                  | `ANTHROPIC_API_KEY`  |
+| 3     | Claude     | `claude-haiku-4-5-20251001`          | `ANTHROPIC_API_KEY`  |
 
 Reorder or shorten the chain with `LLM_PROVIDERS` (e.g. `anthropic,groq` to
 prefer Claude). **Providers with a blank API key are skipped automatically**, so
 you can run on any subset - one key is enough to start.
+
+Image text extraction has its own, separate chain - `IMAGE_PROVIDERS`
+(default `anthropic,groq`), see [File types and image text
+extraction](#file-types-and-image-text-extraction). The two don't have to
+agree: reordering one doesn't touch the other.
 
 Groq and OpenRouter both expose OpenAI-compatible APIs, so both are driven
 through `ChatOpenAI` with a per-provider `base_url`; only `langchain-openai` was
@@ -115,6 +129,7 @@ document-analyzer/
 ├── backend/        FastAPI service: folder scan → chunk → embed → vector store → chat
 │   └── app/
 │       ├── ingest.py        text extraction + chunking + upload handling
+│       ├── vision.py        image -> text via a vision LLM, OCR as fallback
 │       ├── ocr.py           image -> text via local RapidOCR
 │       ├── docstate.py      tracks what's indexed, for delta-only rescans
 │       ├── llm.py           provider failover chain + local embeddings

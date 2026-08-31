@@ -67,10 +67,20 @@ class Settings(BaseSettings):
 
     # --- OCR (image -> text) -------------------------------------------------
     # Runs locally via RapidOCR/onnxruntime - no API calls, no cost. Turn off to
-    # reject image uploads outright.
+    # reject image uploads outright (this also disables the vision-LLM path
+    # below - it's the single switch for "can this app read images at all").
     ocr_enabled: bool = True
     # Detected lines below this confidence are discarded as noise (0.0 - 1.0).
     ocr_min_confidence: float = 0.5
+
+    # --- Image understanding (vision LLM, see vision.py) ----------------------
+    # Tried in this order before falling back to local OCR - a vision model
+    # is usually more accurate than OCR on handwriting or unusual layouts.
+    # Separate from LLM_PROVIDERS (text answer generation): the two chains
+    # don't have to agree, and Claude/every current Claude model is
+    # multimodal, so it reuses CHAT_MODEL rather than needing its own setting.
+    image_providers: str = "anthropic,groq"
+    groq_vision_model: str = "qwen/qwen3.6-27b"
 
     # Retrieval
     # Chunks pulled per question in normal (similarity-search) mode. Higher

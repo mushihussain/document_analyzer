@@ -2,7 +2,8 @@
 Folder scanning, text extraction, and chunking.
 
 Supports: .txt, .md, .pdf, .docx, and images (.png/.jpg/.jpeg/.bmp/.tif/
-.tiff/.webp) which are run through local OCR - see ocr.py.
+.tiff/.webp), which go through a vision LLM first and local OCR as a
+fallback - see vision.py (and ocr.py for the fallback engine itself).
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from pathlib import Path
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
-from . import docstate, ocr
+from . import docstate, ocr, vision
 from .config import settings
 
 TEXT_EXTENSIONS = {".txt", ".md"}
@@ -123,7 +124,7 @@ def extract_pages(path: Path) -> list[str]:
         doc = DocxDocument(str(path))
         return ["\n".join(p.text for p in doc.paragraphs)]
     if suffix in ocr.IMAGE_EXTENSIONS:
-        return [ocr.extract_text(path)]
+        return [vision.extract_text(path)]
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
