@@ -24,13 +24,33 @@ export class DocumentsComponent {
   @Input() lastUpload: UploadResponse | null = null;
   @Input() uploadError: string | null = null;
   @Input() clearing = false;
+  /** Name currently being deleted, so its row can show a busy state. */
+  @Input() deletingName: string | null = null;
   @Output() rescan = new EventEmitter<void>();
   @Output() upload = new EventEmitter<File[]>();
   @Output() clearFolder = new EventEmitter<void>();
+  @Output() deleteDocument = new EventEmitter<string>();
 
   readonly accept = ACCEPTED_EXTENSIONS.join(',');
   dragging = false;
   confirmingClear = false;
+  confirmingDeleteName: string | null = null;
+
+  askDelete(name: string, event: MouseEvent): void {
+    event.stopPropagation();
+    this.confirmingDeleteName = this.confirmingDeleteName === name ? null : name;
+  }
+
+  confirmDelete(name: string, event: MouseEvent): void {
+    event.stopPropagation();
+    this.confirmingDeleteName = null;
+    this.deleteDocument.emit(name);
+  }
+
+  cancelDelete(event: MouseEvent): void {
+    event.stopPropagation();
+    this.confirmingDeleteName = null;
+  }
 
   get busy(): boolean {
     return this.scanning || this.uploading || this.clearing;

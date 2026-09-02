@@ -19,9 +19,11 @@
     [lastUpload]="lastUpload"
     [uploadError]="uploadError"
     [clearing]="clearing"
+    [deletingName]="deletingDocumentName"
     (rescan)="rescan()"
     (upload)="upload($event)"
     (clearFolder)="clearFolder()"
+    (deleteDocument)="deleteDocument($event)"
   ></app-documents>
 
   <app-chat

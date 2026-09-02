@@ -1,6 +1,10 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
+import {
+  HttpDownloadProgressEvent,
+  HttpErrorResponse,
+  HttpEventType,
+} from '@angular/common/http';
 import {
   ApiService,
   ConversationSummary,
@@ -44,6 +48,7 @@ export class AppComponent implements OnInit {
   lastUpload: UploadResponse | null = null;
   uploadError: string | null = null;
   clearing = false;
+  deletingDocumentName: string | null = null;
 
   // Chat
   turns: ChatTurn[] = [];
@@ -101,6 +106,7 @@ export class AppComponent implements OnInit {
     this.lastUpload = null;
     this.uploadError = null;
     this.clearing = false;
+    this.deletingDocumentName = null;
     this.showAdmin = false;
   }
 
@@ -177,36 +183,122 @@ export class AppComponent implements OnInit {
     });
   }
 
+  /** Deletes one document. DocumentsComponent only emits this after the user confirms. */
+  deleteDocument(name: string): void {
+    this.deletingDocumentName = name;
+    this.uploadError = null;
+
+    this.api.deleteDocument(name).subscribe({
+      next: () => {
+        this.deletingDocumentName = null;
+        this.loadDocuments();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.deletingDocumentName = null;
+        this.uploadError = err.error?.detail ?? `Could not delete "${name}".`;
+      },
+    });
+  }
+
   // --- Chat ----------------------------------------------------------------
 
+  /** Answers stream in as newline-delimited JSON (see ApiService.streamChat).
+   *  `partialText` on each DownloadProgress event is the *whole* response
+   *  downloaded so far, not just what's new - `buffer`/`processedChars`
+   *  below turn that back into "only the newly-arrived, complete lines". */
   ask({ question, docName }: AskEvent): void {
     this.turns = [...this.turns, { role: 'user', text: question }];
     this.asking = true;
 
     const startedIn = this.activeConversationId;
+    // Tracks what WE resolved this stream's conversation to, so a later
+    // mismatch against this.activeConversationId means the user actually
+    // navigated away - not just that this stream's own meta line just
+    // filled in a conversation id that started out null.
+    let resolvedConversationId = startedIn;
+    let assistantIndex = -1;
+    let buffer = '';
+    let processedChars = 0;
 
-    this.api.askQuestion(question, startedIn, docName).subscribe({
-      next: (res) => {
-        // Ignore a late reply if the user has already switched threads.
-        if (this.activeConversationId !== startedIn) {
-          this.loadConversations();
-          return;
+    const updateAssistant = (patch: Partial<ChatTurn>): void => {
+      if (assistantIndex < 0) return;
+      this.turns = this.turns.map((t, i) => (i === assistantIndex ? { ...t, ...patch } : t));
+    };
+
+    const appendToken = (text: string): void => {
+      if (assistantIndex < 0) return;
+      const current = this.turns[assistantIndex]?.text ?? '';
+      updateAssistant({ text: current + text });
+    };
+
+    const finish = (): void => {
+      this.asking = false;
+      this.loadConversations();
+    };
+
+    const handleLine = (line: string): void => {
+      let msg: any;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        return; // a malformed line shouldn't take down the rest of the stream
+      }
+
+      switch (msg.type) {
+        case 'meta':
+          this.activeConversationId = msg.conversation_id;
+          resolvedConversationId = msg.conversation_id;
+          this.activeTitle = msg.title;
+          this.turns = [
+            ...this.turns,
+            {
+              role: 'assistant',
+              text: '',
+              sources: msg.sources,
+              fullDocument: msg.full_document,
+              truncated: msg.truncated,
+              streaming: true,
+            },
+          ];
+          assistantIndex = this.turns.length - 1;
+          break;
+        case 'token':
+          appendToken(msg.text);
+          break;
+        case 'done':
+          updateAssistant({ provider: msg.provider, streaming: false });
+          finish();
+          break;
+        case 'error':
+          if (assistantIndex >= 0 && !this.turns[assistantIndex].text) {
+            updateAssistant({ text: msg.detail, error: true, streaming: false });
+          } else {
+            updateAssistant({ streaming: false });
+          }
+          finish();
+          break;
+      }
+    };
+
+    this.api.streamChat(question, startedIn, docName).subscribe({
+      next: (event) => {
+        // The user opened a different thread mid-stream - stop reflecting
+        // this response into (now unrelated) UI state. The request itself
+        // keeps running server-side; its answer is still saved either way.
+        if (this.activeConversationId !== resolvedConversationId) return;
+
+        if (event.type === HttpEventType.DownloadProgress) {
+          const partial = (event as HttpDownloadProgressEvent).partialText ?? '';
+          buffer += partial.slice(processedChars);
+          processedChars = partial.length;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? ''; // the last piece may still be incomplete
+          for (const line of lines) {
+            if (line.trim()) handleLine(line);
+          }
+        } else if (event.type === HttpEventType.Response) {
+          this.asking = false; // safety net - normally already cleared by a done/error line
         }
-        this.activeConversationId = res.conversation_id;
-        this.activeTitle = res.title;
-        this.turns = [
-          ...this.turns,
-          {
-            role: 'assistant',
-            text: res.answer,
-            sources: res.sources,
-            provider: res.provider,
-            fullDocument: res.full_document,
-            truncated: res.truncated,
-          },
-        ];
-        this.asking = false;
-        this.loadConversations();
       },
       error: (err: HttpErrorResponse) => {
         this.asking = false;
@@ -215,7 +307,11 @@ export class AppComponent implements OnInit {
           err.status === 409
             ? 'No documents indexed yet - upload a document or rescan the folder first.'
             : err.error?.detail ?? 'Something went wrong reaching the analyzer.';
-        this.turns = [...this.turns, { role: 'assistant', text: message, error: true }];
+        if (assistantIndex >= 0) {
+          updateAssistant({ text: message, error: true, streaming: false });
+        } else {
+          this.turns = [...this.turns, { role: 'assistant', text: message, error: true }];
+        }
         // The question was saved server-side before generation, so keep the
         // sidebar honest about the thread now existing.
         this.loadConversations();

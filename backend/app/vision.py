@@ -20,7 +20,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
-from . import ocr
+from . import cooldown, ocr
 from .config import settings
 from .llm import GROQ_BASE_URL, _api_key, describe_failure
 
@@ -90,6 +90,7 @@ def extract_text(path: Path) -> str:
     chain = _provider_chain()
     if not chain:
         return ocr.extract_text(path)
+    chain = cooldown.filter_available(chain)
 
     data = base64.b64encode(path.read_bytes()).decode("ascii")
     message = HumanMessage(
@@ -103,11 +104,13 @@ def extract_text(path: Path) -> str:
         try:
             response = _get_model(provider).invoke([message])
         except Exception as exc:  # noqa: BLE001 - any failure means try the next one
+            reason = describe_failure(exc)
+            cooldown.mark_failed(provider, reason)
             log.warning(
                 "[vision] %s failed on %s: %s - falling back to next provider",
                 provider,
                 path.name,
-                describe_failure(exc),
+                reason,
             )
             continue
 

@@ -82,6 +82,19 @@ class Settings(BaseSettings):
     image_providers: str = "anthropic,groq"
     groq_vision_model: str = "qwen/qwen3.6-27b"
 
+    # How long a provider is skipped after a rate-limit/quota failure,
+    # rather than being retried (and failed again) on every request. Shared
+    # by both the text chain (llm.py) and the image chain (vision.py).
+    provider_cooldown_seconds: int = 60
+
+    # --- Rate limiting (see ratelimit.py) -------------------------------------
+    # Fixed windows, in-memory, per-process - see ratelimit.py's docstring for
+    # what that means if this is ever run with multiple workers.
+    rate_limit_auth_per_minute: int = 10       # login/register, per IP
+    rate_limit_chat_per_minute: int = 20       # /api/chat, per user
+    rate_limit_upload_per_minute: int = 10     # upload + ingest, per user - the
+    # two routes that can trigger real vision-LLM spend, not just cheap reads
+
     # Retrieval
     # Chunks pulled per question in normal (similarity-search) mode. Higher
     # values cover more of a document per answer at the cost of more tokens

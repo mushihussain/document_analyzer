@@ -137,6 +137,11 @@ export class ApiService {
     return this.http.post<ClearResponse>(`${this.baseUrl}/documents/clear`, {});
   }
 
+  /** Deletes one document: its file, its indexed chunks, and its scan bookkeeping. */
+  deleteDocument(name: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/documents/${encodeURIComponent(name)}`);
+  }
+
   /** Emits upload-progress events, then the final response. */
   uploadDocuments(files: File[]): Observable<HttpEvent<UploadResponse>> {
     const form = new FormData();
@@ -161,6 +166,25 @@ export class ApiService {
       conversation_id: conversationId,
       doc_name: docName,
     });
+  }
+
+  /** Same as askQuestion, but the server streams the answer as newline-
+   *  delimited JSON instead of one blocking response. `reportProgress` is
+   *  what makes Angular emit a DownloadProgress event (with the response
+   *  text downloaded *so far*, in `partialText`) as each chunk of the body
+   *  arrives, rather than only once the whole thing has finished - that's
+   *  the piece that makes this actually stream instead of just being a
+   *  slower version of askQuestion. */
+  streamChat(
+    question: string,
+    conversationId: number | null,
+    docName: string | null = null
+  ): Observable<HttpEvent<string>> {
+    return this.http.post(
+      `${this.baseUrl}/chat/stream`,
+      { question, conversation_id: conversationId, doc_name: docName },
+      { responseType: 'text', reportProgress: true, observe: 'events' }
+    );
   }
 
   /** Raw bytes of one indexed document, for opening a chat citation. */

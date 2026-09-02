@@ -77,8 +77,26 @@
       <span class="tab" [class.tab-on]="doc.indexed"></span>
       <div class="card-body">
         <span class="doc-name">{{ doc.name }}</span>
-        <span class="doc-status">{{ doc.indexed ? 'filed' : 'not yet filed' }}</span>
+        <span class="doc-status">
+          {{ deletingName === doc.name ? 'removing…' : doc.indexed ? 'filed' : 'not yet filed' }}
+        </span>
       </div>
+
+      <button
+        class="card-delete"
+        *ngIf="confirmingDeleteName !== doc.name"
+        [disabled]="deletingName === doc.name"
+        (click)="askDelete(doc.name, $event)"
+        title="Delete {{ doc.name }}"
+        [attr.aria-label]="'Delete ' + doc.name"
+      >
+        ×
+      </button>
+
+      <span class="card-confirm" *ngIf="confirmingDeleteName === doc.name">
+        <button class="confirm-yes" (click)="confirmDelete(doc.name, $event)">Delete</button>
+        <button class="confirm-no" (click)="cancelDelete($event)">Keep</button>
+      </span>
     </li>
   </ul>
 

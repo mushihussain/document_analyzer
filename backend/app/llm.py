@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 
+from . import cooldown
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -207,24 +208,12 @@ def _system_content(context: str, cache: bool) -> str | list[dict]:
     ]
 
 
-async def chat(
-    question: str,
-    context_chunks: list[str],
-    history: list[dict] | None = None,
-    cacheable: bool = False,
-) -> Answer:
-    """Answer `question` from `context_chunks`, failing over across providers.
-
-    `history` is the earlier turns of this conversation, oldest first, as
-    {"role": "user"|"assistant", "text": str} - replayed so follow-up questions
-    like "what about the second one?" resolve against what was already said.
-
-    `cacheable` marks the context as worth an Anthropic prompt-cache
-    breakpoint (see _system_content) - set it when the same large context is
-    likely to be resent on the next turn, e.g. whole-document mode.
-
-    Raises NoProviderConfigured if nothing has a key, or AllProvidersFailed if
-    every provider in the chain was tried and none answered.
+def _prepare(
+    question: str, context_chunks: list[str], history: list[dict] | None, cacheable: bool
+) -> tuple[list, list, list[str]]:
+    """Shared by chat() and chat_stream(): builds both message variants
+    (plain and cache-marked) and resolves the provider chain, cooldown
+    filtering already applied. Returns (plain_messages, cached_messages, chain).
     """
     context = "\n\n---\n\n".join(context_chunks) if context_chunks else "(no matching context found)"
 
@@ -250,6 +239,34 @@ async def chat(
             "No answer provider is configured. Set GROQ_API_KEY, "
             "OPENROUTER_API_KEY, or ANTHROPIC_API_KEY in backend/.env"
         )
+    # provider_chain() stays the static "configured and keyed" view (also
+    # used to report /api/providers status) - cooldown filtering is applied
+    # here instead, as the dynamic per-request routing decision.
+    chain = cooldown.filter_available(chain)
+
+    return plain_messages, cached_messages, chain
+
+
+async def chat(
+    question: str,
+    context_chunks: list[str],
+    history: list[dict] | None = None,
+    cacheable: bool = False,
+) -> Answer:
+    """Answer `question` from `context_chunks`, failing over across providers.
+
+    `history` is the earlier turns of this conversation, oldest first, as
+    {"role": "user"|"assistant", "text": str} - replayed so follow-up questions
+    like "what about the second one?" resolve against what was already said.
+
+    `cacheable` marks the context as worth an Anthropic prompt-cache
+    breakpoint (see _system_content) - set it when the same large context is
+    likely to be resent on the next turn, e.g. whole-document mode.
+
+    Raises NoProviderConfigured if nothing has a key, or AllProvidersFailed if
+    every provider in the chain was tried and none answered.
+    """
+    plain_messages, cached_messages, chain = _prepare(question, context_chunks, history, cacheable)
 
     failures: list[tuple[str, str]] = []
     for provider in chain:
@@ -258,6 +275,7 @@ async def chat(
             response = await get_chat_model(provider).ainvoke(messages)
         except Exception as exc:  # noqa: BLE001 - any failure means try the next one
             reason = describe_failure(exc)
+            cooldown.mark_failed(provider, reason)
             failures.append((provider, reason))
             log.warning(
                 "[llm] %s (%s) failed: %s - falling back to next provider",
@@ -280,3 +298,81 @@ async def chat(
         return Answer(text=text, provider=provider, model=model_name(provider))
 
     raise AllProvidersFailed(failures)
+
+
+async def chat_stream(
+    question: str,
+    context_chunks: list[str],
+    history: list[dict] | None = None,
+    cacheable: bool = False,
+):
+    """Same failover semantics as chat(), but yields pieces of the answer as
+    they arrive instead of waiting for the whole thing.
+
+    Yields (kind, payload) tuples:
+      ("chunk", text)   - a piece of the answer, in order
+      ("done", Answer)  - terminal, on success
+      ("error", exc)    - terminal, on failure (NoProviderConfigured or AllProvidersFailed)
+
+    Once a provider has yielded at least one chunk, this commits to it: a
+    failure after that point ends the stream with a short interruption note
+    appended, rather than silently retrying a different provider - a client
+    that already has partial text on screen can't cleanly have it replaced
+    by an independent second attempt. A failure *before* any chunk (the
+    common case - auth/quota errors surface immediately) still fails over
+    exactly like chat(), invisibly to the caller.
+    """
+    try:
+        plain_messages, cached_messages, chain = _prepare(question, context_chunks, history, cacheable)
+    except NoProviderConfigured as exc:
+        yield ("error", exc)
+        return
+
+    failures: list[tuple[str, str]] = []
+    for provider in chain:
+        messages = cached_messages if provider == "anthropic" else plain_messages
+        model = get_chat_model(provider)
+        started = False
+        parts: list[str] = []
+        try:
+            async for piece in model.astream(messages):
+                text = piece.content if isinstance(piece.content, str) else str(piece.content)
+                if not text:
+                    continue
+                started = True
+                parts.append(text)
+                yield ("chunk", text)
+        except Exception as exc:  # noqa: BLE001 - any failure means try the next one (if nothing streamed yet)
+            reason = describe_failure(exc)
+            cooldown.mark_failed(provider, reason)
+            failures.append((provider, reason))
+            if started:
+                note = "\n\n[connection interrupted - answer may be incomplete]"
+                yield ("chunk", note)
+                yield (
+                    "done",
+                    Answer(text="".join(parts) + note, provider=provider, model=model_name(provider)),
+                )
+                return
+            log.warning(
+                "[llm] %s (%s) failed before streaming anything: %s - falling back to next provider",
+                provider,
+                model_name(provider),
+                reason,
+            )
+            continue
+
+        full_text = "".join(parts).strip()
+        if not full_text:
+            failures.append((provider, "returned an empty answer"))
+            log.warning("[llm] %s returned an empty answer - trying next provider", provider)
+            continue
+
+        if failures:
+            log.info(
+                "[llm] answered by %s after %d failed provider(s)", provider, len(failures)
+            )
+        yield ("done", Answer(text=full_text, provider=provider, model=model_name(provider)))
+        return
+
+    yield ("error", AllProvidersFailed(failures))

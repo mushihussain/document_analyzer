@@ -21,6 +21,8 @@ export interface ChatTurn {
   /** True when this answer read one document in full rather than searching. */
   fullDocument?: boolean;
   truncated?: boolean;
+  /** True while this turn's answer is still streaming in. */
+  streaming?: boolean;
 }
 
 export interface AskEvent {
@@ -72,6 +74,15 @@ export class ChatComponent implements AfterViewChecked {
 
   label(provider: string | null | undefined): string {
     return provider ? providerLabel(provider) : '';
+  }
+
+  /** The generic "thinking" placeholder shows only before the real,
+   *  incrementally-filling assistant bubble exists - once streaming has
+   *  actually started, that bubble replaces it rather than sitting next to it. */
+  get showThinkingPlaceholder(): boolean {
+    if (!this.asking) return false;
+    const last = this.turns[this.turns.length - 1];
+    return !(last?.role === 'assistant' && last.streaming);
   }
 
   ngAfterViewChecked(): void {

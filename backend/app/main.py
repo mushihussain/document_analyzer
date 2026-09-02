@@ -1,14 +1,16 @@
+import json
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
-from . import admin, auth, conversations, db, docstate, ingest, llm, ocr, vectorstore
+from . import admin, auth, conversations, db, docstate, ingest, llm, ocr, ratelimit, vectorstore
 from .auth import User
 from .config import settings
 from .models import (
@@ -151,8 +153,15 @@ async def health():
     return {"status": "ok"}
 
 
+_auth_rate_limit = ratelimit.by_ip("auth", settings.rate_limit_auth_per_minute)
+_chat_rate_limit = ratelimit.by_user("chat", settings.rate_limit_chat_per_minute)
+# Shared bucket: upload and ingest are the two routes that can trigger real
+# vision-LLM spend (see vision.py), not just cheap reads.
+_upload_rate_limit = ratelimit.by_user("upload", settings.rate_limit_upload_per_minute)
+
+
 @app.post("/api/auth/register", response_model=AuthResponse)
-async def register(req: RegisterRequest):
+async def register(req: RegisterRequest, _rl: None = Depends(_auth_rate_limit)):
     try:
         user = auth.register(req.username, req.password)
     except auth.AuthError as exc:
@@ -164,7 +173,7 @@ async def register(req: RegisterRequest):
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, _rl: None = Depends(_auth_rate_limit)):
     try:
         user = auth.authenticate(req.username, req.password)
     except auth.AuthError as exc:
@@ -330,6 +339,31 @@ async def get_document_file(name: str, user: User = Depends(auth.current_user)):
     return FileResponse(match, media_type=media_type, filename=match.name)
 
 
+@app.delete("/api/documents/{name}", status_code=204)
+async def delete_document(name: str, user: User = Depends(auth.current_user)):
+    """Delete one document: its file, its indexed chunks, and its
+    incremental-scan bookkeeping row. Doesn't touch any other document -
+    the narrower counterpart to /api/documents/clear.
+    """
+    folder = ingest.user_folder(settings.documents_folder, user.id)
+    safe_name = ingest.sanitize_filename(name)
+    match = next(
+        (p for p in ingest.list_documents(str(folder)) if p.name == safe_name),
+        None,
+    )
+    if match is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        match.unlink()
+    except OSError as exc:
+        log.warning("[delete] could not remove %s: %s", match, exc)
+
+    vectorstore.delete_document(user.id, safe_name)
+    vectorstore.delete_document_path(user.id, str(match))
+    docstate.forget_name(user.id, safe_name)
+
+
 @app.post("/api/documents/clear", response_model=ClearResponse)
 async def clear_documents(user: User = Depends(auth.current_user)):
     """Delete every file in the caller's workspace and wipe their index clean.
@@ -354,7 +388,11 @@ async def clear_documents(user: User = Depends(auth.current_user)):
 
 
 @app.post("/api/ingest", response_model=IngestResponse)
-async def ingest_folder(force: bool = False, user: User = Depends(auth.current_user)):
+async def ingest_folder(
+    force: bool = False,
+    user: User = Depends(auth.current_user),
+    _rl: None = Depends(_upload_rate_limit),
+):
     """Bring the caller's index in line with their workspace folder, incrementally.
 
     Only files that are new or changed since the last run are re-read; unchanged
@@ -468,7 +506,9 @@ def _prune_orphans(user_id: int, live_paths: set[str]) -> int:
 
 @app.post("/api/documents/upload", response_model=UploadResponse)
 async def upload_documents(
-    files: list[UploadFile] = File(...), user: User = Depends(auth.current_user)
+    files: list[UploadFile] = File(...),
+    user: User = Depends(auth.current_user),
+    _rl: None = Depends(_upload_rate_limit),
 ):
     """Accept one or more uploads, write them into the caller's workspace
     folder, and index each straight away so it is queryable without a
@@ -616,12 +656,23 @@ def _index_chunks(user_id: int, chunks: list[ingest.Chunk]) -> None:
     )
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
-    """Answer a question and append both turns to the user's chat history.
+@dataclass
+class _ChatSetup:
+    conversation_id: int
+    title: str
+    history: list[dict]
+    context_chunks: list[str]
+    sources: list[SourceSnippet]
+    full_document: bool
+    truncated: bool
 
-    Pass `conversation_id` to continue an existing thread, or omit it to start a
-    new one - the reply carries the id and title to keep the UI in sync.
+
+def _prepare_chat(req: ChatRequest, user: User) -> _ChatSetup:
+    """Shared setup for /api/chat and /api/chat/stream: validates the
+    question, resolves or creates the conversation, and builds context via
+    either similarity search or whole-document mode. Persists the user's
+    turn before returning, so a failed or slow generation still leaves it
+    in their history.
     """
     question = req.question.strip()
     if not question:
@@ -648,8 +699,6 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
             c["title"] for c in conversations.list_for_user(user.id) if c["id"] == conversation_id
         )
 
-    # Persist the question before calling out to Claude, so a failed or slow
-    # generation still leaves the user's turn in their history.
     conversations.add_message(conversation_id, "user", question)
 
     full_document = req.doc_name is not None
@@ -692,8 +741,38 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
             for r in results
         ]
 
+    return _ChatSetup(
+        conversation_id=conversation_id,
+        title=title,
+        history=history,
+        context_chunks=context_chunks,
+        sources=sources,
+        full_document=full_document,
+        truncated=truncated,
+    )
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(
+    req: ChatRequest,
+    user: User = Depends(auth.current_user),
+    _rl: None = Depends(_chat_rate_limit),
+):
+    """Answer a question and append both turns to the user's chat history.
+
+    Pass `conversation_id` to continue an existing thread, or omit it to start a
+    new one - the reply carries the id and title to keep the UI in sync.
+
+    Non-streaming: the UI now uses /api/chat/stream instead, but this stays
+    for anything else that wants a single JSON response (a curl/script
+    caller, e.g.) without needing to parse NDJSON.
+    """
+    setup = _prepare_chat(req, user)
+
     try:
-        answer = await llm.chat(question, context_chunks, history, cacheable=full_document)
+        answer = await llm.chat(
+            req.question.strip(), setup.context_chunks, setup.history, cacheable=setup.full_document
+        )
     except llm.NoProviderConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except llm.AllProvidersFailed as exc:
@@ -706,20 +785,109 @@ async def chat(req: ChatRequest, user: User = Depends(auth.current_user)):
         )
 
     conversations.add_message(
-        conversation_id,
+        setup.conversation_id,
         "assistant",
         answer.text,
-        [s.model_dump() for s in sources],
+        [s.model_dump() for s in setup.sources],
         provider=answer.provider,
     )
 
     return ChatResponse(
         answer=answer.text,
-        sources=sources,
-        conversation_id=conversation_id,
-        title=title,
+        sources=setup.sources,
+        conversation_id=setup.conversation_id,
+        title=setup.title,
         provider=answer.provider,
         model=answer.model,
-        full_document=full_document,
-        truncated=truncated,
+        full_document=setup.full_document,
+        truncated=setup.truncated,
     )
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    user: User = Depends(auth.current_user),
+    _rl: None = Depends(_chat_rate_limit),
+):
+    """Same answer as /api/chat, streamed as newline-delimited JSON instead
+    of one blocking response - the UI uses this one.
+
+    Every line is a JSON object with a "type":
+      {"type": "meta", conversation_id, title, sources, full_document, truncated}
+        - sent first, before any generation - everything known up front.
+      {"type": "token", "text": "..."}
+        - a piece of the answer, in order.
+      {"type": "done", "provider": ..., "model": ...}
+        - terminal, on success.
+      {"type": "error", "status": ..., "detail": "..."}
+        - terminal, on failure. Note the HTTP status itself is always 200
+          here: once the body has started streaming, headers are already
+          sent, so a failure can't change the status code - "status" is
+          just data for the client to react to the same way it would have
+          reacted to that real status from the non-streaming endpoint.
+
+    Validation errors (empty question, no documents indexed, unknown
+    conversation/document, rate limited) still happen before any of that,
+    in _prepare_chat(), and still come back as real HTTP error responses -
+    only the generation phase itself has no HTTP status left to use.
+    """
+    setup = _prepare_chat(req, user)
+    question = req.question.strip()
+
+    async def body():
+        yield (
+            json.dumps(
+                {
+                    "type": "meta",
+                    "conversation_id": setup.conversation_id,
+                    "title": setup.title,
+                    "sources": [s.model_dump() for s in setup.sources],
+                    "full_document": setup.full_document,
+                    "truncated": setup.truncated,
+                }
+            )
+            + "\n"
+        )
+
+        parts: list[str] = []
+        try:
+            async for kind, payload in llm.chat_stream(
+                question, setup.context_chunks, setup.history, cacheable=setup.full_document
+            ):
+                if kind == "chunk":
+                    parts.append(payload)
+                    yield json.dumps({"type": "token", "text": payload}) + "\n"
+                elif kind == "done":
+                    answer: llm.Answer = payload
+                    conversations.add_message(
+                        setup.conversation_id,
+                        "assistant",
+                        answer.text,
+                        [s.model_dump() for s in setup.sources],
+                        provider=answer.provider,
+                    )
+                    yield (
+                        json.dumps(
+                            {"type": "done", "provider": answer.provider, "model": answer.model}
+                        )
+                        + "\n"
+                    )
+                elif kind == "error":
+                    exc = payload
+                    if isinstance(exc, llm.NoProviderConfigured):
+                        status, detail = 503, str(exc)
+                    else:
+                        status = 429 if exc.all_rate_limited else 502
+                        detail = "Every answer provider is unavailable - " + "; ".join(
+                            f"{name} ({reason})" for name, reason in exc.failures
+                        )
+                    yield json.dumps({"type": "error", "status": status, "detail": detail}) + "\n"
+        except Exception as exc:  # noqa: BLE001 - the stream is already open, this is the only way left to report it
+            log.exception("[chat] unexpected error mid-stream")
+            yield (
+                json.dumps({"type": "error", "status": 500, "detail": "Unexpected server error"})
+                + "\n"
+            )
+
+    return StreamingResponse(body(), media_type="application/x-ndjson")

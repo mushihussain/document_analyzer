@@ -24,8 +24,8 @@
       [class.turn-user]="turn.role === 'user'"
       [class.turn-assistant]="turn.role === 'assistant'"
     >
-      <div class="bubble" [class.error]="turn.error">
-        {{ turn.text }}
+      <div class="bubble" [class.error]="turn.error" [class.thinking]="turn.streaming && !turn.text">
+        {{ turn.streaming && !turn.text ? 'Thinking…' : turn.text }}
       </div>
 
       <span class="answered-by" *ngIf="turn.provider && !turn.error">
@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <div class="turn turn-assistant" *ngIf="asking">
+    <div class="turn turn-assistant" *ngIf="showThinkingPlaceholder">
       <div class="bubble thinking">Searching the shelves…</div>
     </div>
   </div>

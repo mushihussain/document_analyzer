@@ -250,6 +250,45 @@
   color: var(--paper-200);
 }
 
+.card-delete {
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0 10px 0 auto;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--paper-200);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.card:hover .card-delete,
+.card-delete:focus-visible {
+  opacity: 1;
+}
+
+.card-delete:hover:not(:disabled) {
+  color: var(--amber-500);
+}
+
+.card-delete:disabled {
+  cursor: default;
+}
+
+.card-confirm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 10px 0 auto;
+  align-self: center;
+}
+
 .empty-state {
   font-size: 13px;
   color: var(--paper-200);
