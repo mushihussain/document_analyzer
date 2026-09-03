@@ -21,7 +21,7 @@ const STORAGE_KEY = 'document-analyzer.session';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   // See api.service.ts - relative so the same build works in dev and prod.
-  private readonly baseUrl = '/api/auth';
+  private readonly baseUrl = 'api/auth';
   private session: StoredSession | null = null;
 
   /** Emits the signed-in username, or null when signed out. */

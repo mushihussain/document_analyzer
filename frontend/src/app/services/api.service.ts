@@ -120,7 +120,7 @@ export class ApiService {
   // Relative, not absolute - Nginx (prod) or the dev-server proxy (see
   // proxy.conf.json) forwards this to the backend, so the same build works
   // whether it's opened from localhost or the deployed domain.
-  private readonly baseUrl = '/api';
+  private readonly baseUrl = 'api';
 
   constructor(private http: HttpClient) {}
 
