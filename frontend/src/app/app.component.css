@@ -4,6 +4,66 @@
   width: 100vw;
 }
 
+/* Mobile tab bar: hidden above the breakpoint, where all three panels show
+   side by side as normal - this only exists to pick one of them below it. */
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--ink-800);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mobile-nav button {
+    flex: 1;
+    padding: 14px 8px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--paper-200);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+  }
+
+  .mobile-nav button.active {
+    color: var(--paper-100);
+    border-bottom-color: var(--amber-500);
+  }
+
+  /* Stack instead of side-by-side, and only render whichever panel the tab
+     bar has selected - the other two stay mounted (so their state isn't
+     lost switching back and forth) but take no space and aren't painted. */
+  .shell {
+    flex-direction: column;
+    padding-top: 46px; /* clears the fixed .mobile-nav above */
+  }
+
+  .shell > app-documents,
+  .shell > app-chat,
+  .shell > app-history {
+    display: none;
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .shell[data-panel='documents'] > app-documents,
+  .shell[data-panel='chat'] > app-chat,
+  .shell[data-panel='history'] > app-history {
+    display: flex;
+  }
+}
+
 .toast-error {
   position: fixed;
   top: 16px;

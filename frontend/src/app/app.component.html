@@ -9,7 +9,27 @@
   {{ sourceOpenError }}
 </div>
 
-<div class="shell" *ngIf="signedIn && !showAdmin">
+<nav class="mobile-nav" *ngIf="signedIn && !showAdmin">
+  <button
+    type="button"
+    [class.active]="activePanel === 'documents'"
+    (click)="setPanel('documents')"
+  >
+    Documents
+  </button>
+  <button type="button" [class.active]="activePanel === 'chat'" (click)="setPanel('chat')">
+    Chat
+  </button>
+  <button
+    type="button"
+    [class.active]="activePanel === 'history'"
+    (click)="setPanel('history')"
+  >
+    History
+  </button>
+</nav>
+
+<div class="shell" *ngIf="signedIn && !showAdmin" [attr.data-panel]="activePanel">
   <app-documents
     [documents]="documents"
     [scanning]="scanning"

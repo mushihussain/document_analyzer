@@ -10,6 +10,17 @@
   overflow: hidden;
 }
 
+/* Below the mobile breakpoint this is the only panel on screen at a time
+   (see app.component.css) - fill the width instead of staying pinned to
+   its desktop size, and drop the border that used to separate it from chat. */
+@media (max-width: 900px) {
+  .history {
+    width: 100%;
+    min-width: 0;
+    border-left: none;
+  }
+}
+
 .history-header {
   margin-bottom: 18px;
 }

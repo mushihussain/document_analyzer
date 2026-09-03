@@ -8,6 +8,17 @@
   overflow-y: auto;
 }
 
+/* Below the mobile breakpoint this is the only panel on screen at a time
+   (see app.component.css) - fill the width instead of staying pinned to
+   its desktop size, and drop the border that used to separate it from chat. */
+@media (max-width: 900px) {
+  .catalog {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+}
+
 .catalog-header {
   margin-bottom: 20px;
 }

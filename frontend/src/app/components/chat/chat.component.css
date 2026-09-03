@@ -177,6 +177,7 @@
 
 .composer {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 18px 32px 28px;
   border-top: 1px solid var(--line);
@@ -221,4 +222,30 @@
 .composer button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+@media (max-width: 900px) {
+  .header {
+    padding: 16px 16px 12px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+  }
+
+  .transcript {
+    padding: 16px;
+  }
+
+  .composer {
+    padding: 14px 16px 18px;
+  }
+
+  /* The three composer controls (scope, question, ask) no longer fit one
+     row at phone widths - give the scope picker its own full-width row
+     above the question + button, rather than letting them get crushed. */
+  .scope-select {
+    flex: 1 1 100%;
+    max-width: none;
+  }
 }

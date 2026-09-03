@@ -68,6 +68,14 @@ export class AppComponent implements OnInit {
 
   sourceOpenError: string | null = null;
 
+  /** Which panel is visible below the mobile breakpoint (see app.component.css) -
+   *  irrelevant above it, where all three show side by side regardless. */
+  activePanel: 'documents' | 'chat' | 'history' = 'chat';
+
+  setPanel(panel: 'documents' | 'chat' | 'history'): void {
+    this.activePanel = panel;
+  }
+
   constructor(private api: ApiService, private auth: AuthService) {}
 
   ngOnInit(): void {
@@ -108,6 +116,7 @@ export class AppComponent implements OnInit {
     this.clearing = false;
     this.deletingDocumentName = null;
     this.showAdmin = false;
+    this.activePanel = 'chat';
   }
 
   private loadWorkspace(): void {
@@ -361,6 +370,7 @@ export class AppComponent implements OnInit {
     this.activeConversationId = null;
     this.activeTitle = null;
     this.loadingThread = false;
+    this.activePanel = 'chat';
   }
 
   // --- History -------------------------------------------------------------
@@ -388,6 +398,7 @@ export class AppComponent implements OnInit {
     this.loadingThread = true;
     this.activeConversationId = id;
     this.turns = [];
+    this.activePanel = 'chat'; // switch back into view on mobile, where History is its own tab
 
     this.api.getConversation(id).subscribe({
       next: (detail) => {
