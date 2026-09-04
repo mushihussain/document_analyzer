@@ -7,6 +7,7 @@ import { Observable } from 'rxjs';
 export const ACCEPTED_EXTENSIONS = [
   '.pdf',
   '.docx',
+  '.xlsx',
   '.txt',
   '.md',
   '.png',

@@ -1,18 +1,24 @@
 """
 Folder scanning, text extraction, and chunking.
 
-Supports: .txt, .md, .pdf, .docx, and images (.png/.jpg/.jpeg/.bmp/.tif/
-.tiff/.webp), which go through a vision LLM first and local OCR as a
+Supports: .txt, .md, .pdf, .docx, .xlsx, and images (.png/.jpg/.jpeg/.bmp/
+.tif/.tiff/.webp), which go through a vision LLM first and local OCR as a
 fallback - see vision.py (and ocr.py for the fallback engine itself).
+
+.xls (the legacy pre-2007 binary format) isn't supported, same call as
+.doc not being supported alongside .docx - openpyxl only reads the modern
+OOXML format.
 """
 from __future__ import annotations
 
 import bisect
+import datetime
 import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import openpyxl
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
@@ -20,7 +26,10 @@ from . import docstate, ocr, vision
 from .config import settings
 
 TEXT_EXTENSIONS = {".txt", ".md"}
-DOCUMENT_EXTENSIONS = {".pdf", ".docx"}
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".xlsx"}
+# Formats with a real "which page/sheet did this come from" concept worth
+# citing - see build_chunks_for_document().
+_PAGINATED_EXTENSIONS = {".pdf", ".xlsx"}
 
 
 def supported_extensions() -> set[str]:
@@ -45,8 +54,11 @@ class Chunk:
     doc_name: str
     text: str
     chunk_index: int
-    # 1-indexed source page, when known (PDFs only) - lets a chat citation
-    # jump the reader straight to where the answer came from.
+    # 1-indexed source page (PDF) or sheet (xlsx), when known - lets a chat
+    # citation point at roughly where the answer came from. Only PDFs get
+    # the "jump straight there" link (see openSourceDocument in the
+    # frontend); for xlsx it's informational only - the citation still
+    # names the sheet, opening the file just doesn't deep-link into it.
     page: int | None = None
 
 
@@ -123,9 +135,45 @@ def extract_pages(path: Path) -> list[str]:
     if suffix == ".docx":
         doc = DocxDocument(str(path))
         return ["\n".join(p.text for p in doc.paragraphs)]
+    if suffix == ".xlsx":
+        return _extract_xlsx_pages(path)
     if suffix in ocr.IMAGE_EXTENSIONS:
         return [vision.extract_text(path)]
     raise ValueError(f"Unsupported file type: {suffix}")
+
+
+def _extract_xlsx_pages(path: Path) -> list[str]:
+    """One text block per worksheet: each row's non-empty cells joined with
+    " | ", blank rows dropped entirely.
+
+    data_only=True reads formula cells' last-computed value rather than the
+    formula text itself ("42" instead of "=SUM(A1:A10)") - the right choice
+    for search, but it depends on Excel (or whatever last saved the file)
+    having actually calculated and cached that value; a workbook written
+    purely by a script that never went through Excel can leave formula
+    cells reading as empty. read_only=True streams rows instead of loading
+    the whole sheet into memory - matters for anything beyond a trivial
+    spreadsheet.
+    """
+    workbook = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
+    try:
+        pages = []
+        for sheet in workbook.worksheets:
+            lines = [f"Sheet: {sheet.title}"]
+            for row in sheet.iter_rows(values_only=True):
+                cells = [_format_cell(v) for v in row if v is not None]
+                if cells:
+                    lines.append(" | ".join(cells))
+            pages.append("\n".join(lines))
+        return pages
+    finally:
+        workbook.close()
+
+
+def _format_cell(value) -> str:
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return str(value)
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -176,7 +224,7 @@ def chunk_text_with_pages(
 
 
 def build_chunks_for_document(path: Path, chunk_size: int, overlap: int) -> list[Chunk]:
-    is_pdf = path.suffix.lower() == ".pdf"
+    track_page = path.suffix.lower() in _PAGINATED_EXTENSIONS
     pieces = chunk_text_with_pages(extract_pages(path), chunk_size, overlap)
     chunks = []
     for i, (piece, page) in enumerate(pieces):
@@ -188,7 +236,7 @@ def build_chunks_for_document(path: Path, chunk_size: int, overlap: int) -> list
                 doc_name=path.name,
                 text=piece,
                 chunk_index=i,
-                page=page if is_pdf else None,
+                page=page if track_page else None,
             )
         )
     return chunks

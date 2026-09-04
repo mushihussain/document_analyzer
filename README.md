@@ -1,9 +1,10 @@
 # Document Analyzer
 
-Reads a folder of documents (`.txt`, `.md`, `.pdf`, `.docx`, plus images via a
-vision LLM or local OCR), indexes them into a local vector store, and answers
-questions about them through a chat UI - grounded only in what's actually in
-the folder (RAG), with source excerpts shown for every answer.
+Reads a folder of documents (`.txt`, `.md`, `.pdf`, `.docx`, `.xlsx`, plus
+images via a vision LLM or local OCR), indexes them into a local vector
+store, and answers questions about them through a chat UI - grounded only in
+what's actually in the folder (RAG), with source excerpts shown for every
+answer.
 
 Built on **LangChain**: retrieval (embeddings + vector search) stays local via a
 small on-device sentence-transformers model, and answer generation runs through a
@@ -48,10 +49,21 @@ rescan a full one. The response reports `added` / `updated` / `unchanged` /
 | Type                                          | How text is extracted          |
 |-----------------------------------------------|--------------------------------|
 | `.txt`, `.md`                                 | read directly                  |
-| `.pdf`                                        | `pypdf` text layer             |
+| `.pdf`                                        | `pypdf` text layer, per page   |
 | `.docx`                                       | `python-docx` paragraphs       |
+| `.xlsx`                                       | `openpyxl`, per sheet - see below |
 | `.png` `.jpg` `.jpeg` `.webp`                 | **vision LLM**, then local OCR ([vision.py](backend/app/vision.py)) |
 | `.bmp` `.tif` `.tiff`                         | **local OCR** only ([ocr.py](backend/app/ocr.py)) |
+
+`.xlsx` only - not the legacy pre-2007 `.xls` binary format, same call as
+`.docx` without `.doc`. Each sheet is read as its own "page" (reusing the
+same page-tracking chunking already built for PDFs), so a citation names
+which sheet an answer came from. Each row's non-empty cells join with
+`" | "`; blank rows are dropped. Formula cells return Excel's last
+*computed* value, not the formula text - which depends on the file having
+actually been saved by Excel (or something that caches computed values);
+a workbook written by a script that never went through Excel can leave
+formula cells unreadable.
 
 Images are read by a vision-capable LLM first - Claude, then Groq's vision
 model, in `IMAGE_PROVIDERS` order (default `anthropic,groq`) - which is

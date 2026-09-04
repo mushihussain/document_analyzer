@@ -22,8 +22,8 @@
     />
     <span class="dropzone-title">{{ uploading ? 'Filing…' : 'Add documents' }}</span>
     <span class="dropzone-hint" *ngIf="!uploading">Drop files here or click to browse</span>
-    <span class="dropzone-hint" *ngIf="!uploading">pdf · docx · txt · md</span>
-    <span class="dropzone-hint" *ngIf="!uploading">images read with OCR: png · jpg · tif · webp</span>
+    <span class="dropzone-hint" *ngIf="!uploading">pdf · docx · xlsx · txt · md</span>
+    <span class="dropzone-hint" *ngIf="!uploading">images: png · jpg · tif · webp</span>
 
     <span class="progress" *ngIf="uploading">
       <span class="progress-bar" [style.width.%]="uploadProgress"></span>
